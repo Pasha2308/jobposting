@@ -1,0 +1,108 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import Icon from '../../../components/Icon.astro';
+import OpportunityEditor from '../../../components/admin/OpportunityEditor';
+import CommentStudio from '../../../components/admin/CommentStudio';
+import { loadAdminCategories, loadComments, loadCompanies, loadOpportunityById } from '../../../lib/admin-data';
+import { STATUS_LABELS } from '../../../lib/domain/format';
+
+const env = Astro.locals.env;
+const id = Astro.params.id ?? '';
+const { data: opportunity } = await loadOpportunityById(env, id);
+if (!opportunity) {
+  return Astro.rewrite('/404');
+}
+
+const [categories, companies, comments] = await Promise.all([
+  loadAdminCategories(env),
+  loadCompanies(env),
+  loadComments(env, id),
+]);
+
+const created = Astro.url.searchParams.get('created') === '1';
+const published = opportunity.status === 'published' && Boolean(opportunity.published_at);
+const listingUrl = published ? `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.slug}` : null;
+const companyList = companies.data.some((company) => company.id === opportunity.company_id)
+  ? companies.data
+  : opportunity.company
+    ? [
+        {
+          id: opportunity.company.id,
+          name: opportunity.company.name,
+          slug: opportunity.company.slug,
+          website: opportunity.company.website,
+          careers_url: opportunity.company.careers_url,
+          description: opportunity.company.description,
+          logo_url: null,
+          verified: opportunity.company.verified,
+          created_at: '',
+          updated_at: '',
+        },
+        ...companies.data,
+      ]
+    : companies.data;
+---
+
+<AdminLayout
+  title={opportunity.title}
+  description="Edit the listing, verify each field against the source, then publish through the validated gate. System timestamps are never editable."
+  active="opportunities"
+  eyebrow="Opportunity editor"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities"><Icon name="arrow-left" size={13} /> All opportunities</a>
+    {published && listingUrl && (
+      <a class="btn btn--primary btn--sm" href={listingUrl} target="_blank" rel="noopener">
+        <Icon name="eye" size={13} /> View public page
+      </a>
+    )}
+  </div>
+
+  {created && (
+    <div class="alert alert--success" role="status" style="margin-bottom:1rem">
+      <strong>Draft created.</strong> Review every field, verify the source and add a usable application route before
+      publishing.
+    </div>
+  )}
+
+  <div class="panel" style="margin-bottom:1rem">
+    <div class="panel__body cluster" style="justify-content:space-between;flex-wrap:wrap">
+      <div class="cluster" style="gap:0.5rem">
+        <span class:list={['badge', `badge--${opportunity.status}`]}>{STATUS_LABELS[opportunity.status]}</span>
+        <span class:list={['badge', `badge--${opportunity.verification_status}`]}>{opportunity.verification_status.replace(/_/g, ' ')}</span>
+        {opportunity.is_featured && <span class="badge badge--pending_review">Featured</span>}
+        <span class="tiny muted">Slug: /opportunities/{opportunity.slug}</span>
+      </div>
+      <div class="cluster" style="gap:0.5rem">
+        {opportunity.source_url && (
+          <a class="tiny" href={opportunity.source_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+            <Icon name="link" size={11} /> Original source
+          </a>
+        )}
+        {opportunity.source_capture_id && (
+          <a class="tiny" href={`/admin/captures/${opportunity.source_capture_id}`} style="text-decoration:underline">
+            <Icon name="inbox" size={11} /> Captured source
+          </a>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <OpportunityEditor
+    client:load
+    opportunity={opportunity}
+    categories={categories.data}
+    companies={companyList}
+    mode="edit"
+  />
+
+  <div style="margin-top:1.5rem">
+    <CommentStudio
+      client:load
+      opportunityId={opportunity.id}
+      initialComments={comments.data}
+      listingUrl={listingUrl}
+      published={published}
+    />
+  </div>
+</AdminLayout>

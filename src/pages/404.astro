@@ -1,0 +1,26 @@
+---
+import PublicLayout from '../layouts/PublicLayout.astro';
+import Icon from '../components/Icon.astro';
+---
+
+<PublicLayout
+  title="Page not found — Hustler Community Opportunities"
+  description="The page you were looking for could not be found. Browse the opportunity directory or return home."
+  indexable={false}
+>
+  <section class="section">
+    <div class="container--narrow" style="text-align:center;padding-block:4rem">
+      <span class="mono muted" style="letter-spacing:0.15em">404 / NOT FOUND</span>
+      <h1 style="margin-top:1.25rem;font-size:clamp(2.2rem,6vw,4rem)">This page isn't on the board.</h1>
+      <p class="lede muted" style="margin-top:1rem;max-width:52ch;margin-inline:auto">
+        The link may be old, or the opportunity may have been removed. The directory is still open — start from the live
+        listings.
+      </p>
+      <div class="cluster" style="justify-content:center;margin-top:2rem">
+        <a class="btn btn--primary" href="/opportunities">Explore opportunities <Icon name="arrow-right" size={14} /></a>
+        <a class="btn btn--outline" href="/">Back home</a>
+        <a class="btn btn--ghost" href="/submit">Submit a role</a>
+      </div>
+    </div>
+  </section>
+</PublicLayout>

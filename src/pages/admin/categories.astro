@@ -1,0 +1,268 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadAdminCategoriesWithCounts } from '../../lib/admin-data';
+import { relativeTime } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const categories = await loadAdminCategoriesWithCounts(env);
+const active = categories.data.filter((category) => category.is_active).length;
+const featured = categories.data.filter((category) => category.is_featured).length;
+const totalRoles = categories.data.reduce((sum, category) => sum + category.opportunity_count, 0);
+---
+
+<AdminLayout
+  title="Categories"
+  description="The taxonomy behind the public directory and every category page. Deactivate a category instead of deleting it so existing listings keep their history."
+  active="categories"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/categories" target="_blank" rel="noopener">
+      Public taxonomy <Icon name="arrow-up-right" size={12} />
+    </a>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:1.5rem">
+    <div class="stat-card">
+      <div class="stat-card__label">Categories</div>
+      <div class="stat-card__value">{categories.data.length}</div>
+      <div class="stat-card__hint">{active} active · {featured} featured</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Categorised roles</div>
+      <div class="stat-card__value">{totalRoles}</div>
+      <div class="stat-card__hint">Across every status</div>
+    </div>
+  </div>
+
+  <div class="admin-columns">
+    <form class="panel" data-category-form novalidate>
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="folder" size={14} /> Category record</span>
+        <span class="badge badge--draft" data-category-mode>New category</span>
+      </div>
+      <div class="panel__body">
+        <input type="hidden" name="id" value="" />
+        <div class="form-grid">
+          <div class="field col-span-2">
+            <label for="category-name">Name</label>
+            <input class="input" id="category-name" name="name" type="text" required maxlength="80" placeholder="e.g. Product & Design" />
+            <p class="field__hint">The public slug is generated from the name on creation and then kept stable.</p>
+          </div>
+          <div class="field col-span-2">
+            <label for="category-description">Description</label>
+            <textarea class="textarea" id="category-description" name="description" rows={3} maxlength="500" placeholder="What kinds of roles belong in this category?"></textarea>
+          </div>
+          <div class="field">
+            <label for="category-order">Sort order</label>
+            <input class="input" id="category-order" name="sort_order" type="number" min="0" max="9999" step="1" value="100" />
+          </div>
+          <div class="field" style="justify-content:flex-end">
+            <label class="cluster tiny" style="gap:0.5rem;color:var(--text-dim)">
+              <input type="checkbox" name="is_active" checked /> Active
+            </label>
+            <label class="cluster tiny" style="gap:0.5rem;color:var(--text-dim)">
+              <input type="checkbox" name="is_featured" /> Featured
+            </label>
+          </div>
+        </div>
+        <div class="cluster" style="justify-content:space-between;margin-top:1rem">
+          <button class="btn btn--ghost btn--sm" type="button" data-category-reset>Clear form</button>
+          <button class="btn btn--primary btn--sm" type="submit" data-category-submit>
+            <Icon name="check" size={13} /> Save category
+          </button>
+        </div>
+        <div class="alert alert--success" data-category-status role="status" aria-live="polite" hidden style="margin-top:0.85rem"></div>
+        <div class="alert alert--error" data-category-error role="alert" hidden style="margin-top:0.85rem"></div>
+      </div>
+    </form>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="shield" size={14} /> Taxonomy rules</span>
+      </div>
+      <div class="panel__body">
+        <div class="notice">
+          <strong>Every published role needs a category.</strong> Publication is blocked without one, because the public
+          category pages and structured data depend on it.
+        </div>
+        <div class="notice" style="margin-top:0.75rem">
+          <strong>Deactivate, don't delete.</strong> Inactive categories disappear from public filters but stay attached to
+          their historical listings. Existing roles keep their category label.
+        </div>
+        <div class="notice" style="margin-top:0.75rem">
+          <strong>Featured is editorial.</strong> Featured categories get promoted on the homepage. Only feature a category
+          that has genuine live roles.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:1.5rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="folder" size={14} /> All categories</span>
+      <span class="tiny muted">Ordered by sort order</span>
+    </div>
+    {categories.data.length ? (
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Slug</th>
+              <th>Roles</th>
+              <th>Visibility</th>
+              <th>Order</th>
+              <th>Updated</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.data
+              .slice()
+              .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+              .map((category) => (
+                <tr>
+                  <td>
+                    <div class="cell-title">{category.name}</div>
+                    <div class="cell-sub">{category.description ? category.description.slice(0, 90) : 'No description'}</div>
+                  </td>
+                  <td class="mono tiny muted">/{category.slug}</td>
+                  <td class="mono tiny">{category.opportunity_count}</td>
+                  <td>
+                    <span class:list={['badge', category.is_active ? 'badge--approved' : 'badge--archived']}>
+                      {category.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                    {category.is_featured && <span class="badge badge--pending_review" style="margin-left:0.3rem">Featured</span>}
+                  </td>
+                  <td class="mono tiny">{category.sort_order}</td>
+                  <td class="tiny muted">{relativeTime(category.updated_at)}</td>
+                  <td>
+                    <div class="actions">
+                      <button
+                        class="btn btn--outline btn--sm"
+                        type="button"
+                        data-category-edit
+                        data-id={category.id}
+                        data-name={category.name}
+                        data-description={category.description ?? ''}
+                        data-sort={category.sort_order}
+                        data-active={category.is_active ? 'true' : 'false'}
+                        data-featured={category.is_featured ? 'true' : 'false'}
+                      >
+                        Edit
+                      </button>
+                      {category.is_active && (
+                        <a class="btn btn--ghost btn--sm" href={`/categories/${category.slug}`} target="_blank" rel="noopener" aria-label={`View ${category.name}`}>
+                          <Icon name="eye" size={13} />
+                        </a>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div class="table-empty">No categories yet. Create the first one above, or run the seed migration.</div>
+    )}
+  </div>
+</AdminLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-category-form]');
+  const mode = document.querySelector<HTMLElement>('[data-category-mode]');
+  const submit = document.querySelector<HTMLButtonElement>('[data-category-submit]');
+  const statusBox = document.querySelector<HTMLElement>('[data-category-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-category-error]');
+
+  function resetForm() {
+    form?.reset();
+    const idInput = form?.querySelector<HTMLInputElement>('input[name="id"]');
+    if (idInput) idInput.value = '';
+    const order = form?.querySelector<HTMLInputElement>('[name="sort_order"]');
+    if (order) order.value = '100';
+    const active = form?.querySelector<HTMLInputElement>('[name="is_active"]');
+    if (active) active.checked = true;
+    if (mode) mode.textContent = 'New category';
+  }
+
+  document.querySelector('[data-category-reset]')?.addEventListener('click', resetForm);
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-category-edit]')) {
+    button.addEventListener('click', () => {
+      if (!form) return;
+      const data = button.dataset;
+      const set = (name: string, value: string) => {
+        const input = form.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`);
+        if (input) input.value = value;
+      };
+      set('id', data.id ?? '');
+      set('name', data.name ?? '');
+      set('description', data.description ?? '');
+      set('sort_order', data.sort ?? '100');
+      const active = form.querySelector<HTMLInputElement>('[name="is_active"]');
+      if (active) active.checked = data.active === 'true';
+      const featured = form.querySelector<HTMLInputElement>('[name="is_featured"]');
+      if (featured) featured.checked = data.featured === 'true';
+      if (mode) mode.textContent = 'Editing category';
+      if (statusBox) statusBox.hidden = true;
+      if (errorBox) errorBox.hidden = true;
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!form) return;
+    const data = new FormData(form);
+    const payload = {
+      id: String(data.get('id') ?? '').trim() || undefined,
+      name: String(data.get('name') ?? '').trim(),
+      description: String(data.get('description') ?? '').trim() || null,
+      sort_order: Number(data.get('sort_order') ?? 100),
+      is_active: data.get('is_active') === 'on',
+      is_featured: data.get('is_featured') === 'on',
+    };
+    if (!payload.name) {
+      if (errorBox) {
+        errorBox.hidden = false;
+        errorBox.textContent = 'A category name is required.';
+      }
+      return;
+    }
+
+    submit?.setAttribute('disabled', 'true');
+    if (statusBox) statusBox.hidden = true;
+    if (errorBox) errorBox.hidden = true;
+
+    try {
+      const response = await fetch('/api/admin/categories', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!response.ok || !result?.ok) {
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = result?.error ?? 'The category could not be saved.';
+        }
+        submit?.removeAttribute('disabled');
+        return;
+      }
+      if (statusBox) {
+        statusBox.hidden = false;
+        statusBox.textContent = 'Saved. Reloading…';
+      }
+      window.setTimeout(() => window.location.reload(), 350);
+    } catch {
+      if (errorBox) {
+        errorBox.hidden = false;
+        errorBox.textContent = 'Network error. Nothing was saved.';
+      }
+      submit?.removeAttribute('disabled');
+    }
+  });
+</script>

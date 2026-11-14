@@ -1,0 +1,104 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import Icon from '../../components/Icon.astro';
+import EmptyState from '../../components/EmptyState.astro';
+import { loadCountries, loadLocations } from '../../lib/page-data';
+
+const env = Astro.locals.env;
+const [locations, countries] = await Promise.all([loadLocations(env), loadCountries(env)]);
+const totalRoles = locations.data.reduce((sum, l) => sum + l.count, 0);
+
+const grouped = new Map<string, typeof locations.data>();
+for (const location of locations.data) {
+  const key = location.country ?? 'Remote / location not specified';
+  const list = grouped.get(key) ?? [];
+  list.push(location);
+  grouped.set(key, list);
+}
+const groups = [...grouped.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+---
+
+<PublicLayout
+  title="Startup opportunities by location — Hustler Community"
+  description="Browse curated startup opportunities by city and country. Locations are taken from the original posts, never inferred from company headquarters."
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">Locations</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">Where the work is</span>
+          <h1>Opportunities by location</h1>
+          <p>
+            Cities and countries with reviewed startup roles. Locations come from the original source — if a post does
+            not state one, we do not guess it.
+          </p>
+        </div>
+        <div class="page-head__aside">
+          <strong>{locations.data.length.toLocaleString('en-US')}</strong>
+          {locations.data.length === 1 ? 'city' : 'cities'} · {totalRoles} roles
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container">
+      {!locations.available && (
+        <div class="alert alert--info" role="status">
+          <strong>Database not connected.</strong> Location counts will appear once Supabase is configured.
+        </div>
+      )}
+
+      {countries.data.length > 0 && (
+        <div style="margin-bottom:2.5rem">
+          <span class="eyebrow">Countries</span>
+          <div class="location-links" style="margin-top:1rem">
+            {countries.data.map((country) => (
+              <a class="location-link" href={`/opportunities?country=${encodeURIComponent(country.country)}`}>
+                <Icon name="globe" size={13} /> {country.country} <span>{country.count}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {groups.length ? (
+        <div class="stack" style="--s-8: 2.5rem">
+          {groups.map(([country, list]) => (
+            <div>
+              <div class="section-head" style="margin-bottom:1rem;align-items:center">
+                <div>
+                  <h2 style="font-size:1.25rem">{country}</h2>
+                  <p class="tiny muted" style="margin-top:0.25rem">
+                    {list.reduce((sum, l) => sum + l.count, 0)} open {list.reduce((sum, l) => sum + l.count, 0) === 1 ? 'role' : 'roles'}
+                  </p>
+                </div>
+              </div>
+              <div class="location-links">
+                {list.map((location) => (
+                  <a class="location-link" href={`/locations/${location.slug}`}>
+                    <Icon name="map-pin" size={13} /> {location.city} <span>{location.count}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No city-level locations yet"
+          description="Locations appear when published roles include a city. Remote roles may not list one — try the remote filter instead."
+          icon="map-pin"
+        >
+          <div class="cluster" style="justify-content:center">
+            <a href="/opportunities?workMode=remote" class="btn btn--primary btn--sm">Browse remote roles</a>
+            <a href="/opportunities" class="btn btn--outline btn--sm">All opportunities</a>
+          </div>
+        </EmptyState>
+      )}
+    </div>
+  </section>
+</PublicLayout>

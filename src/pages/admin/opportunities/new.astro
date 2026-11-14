@@ -1,0 +1,42 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import Icon from '../../../components/Icon.astro';
+import OpportunityEditor from '../../../components/admin/OpportunityEditor';
+import { loadAdminCategories, loadCompanies } from '../../../lib/admin-data';
+
+const env = Astro.locals.env;
+const [categories, companies] = await Promise.all([loadAdminCategories(env), loadCompanies(env)]);
+const activeCategories = categories.data.filter((category) => category.is_active);
+---
+
+<AdminLayout
+  title="New opportunity"
+  description="Create a draft manually. Nothing is published from this form — publication is a separate, validated action."
+  active="opportunities"
+  eyebrow="Opportunity editor"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities"><Icon name="arrow-left" size={13} /> All opportunities</a>
+    <a class="btn btn--ghost btn--sm" href="/admin/capture"><Icon name="zap" size={13} /> Capture instead</a>
+  </div>
+
+  {activeCategories.length === 0 && (
+    <div class="alert alert--warning" role="status" style="margin-bottom:1rem">
+      <strong>No active categories.</strong> Create a category before saving a draft, or run the seed migration.
+      <a href="/admin/categories" style="text-decoration:underline">Open categories</a>.
+    </div>
+  )}
+
+  <div class="notice" style="margin-bottom:1rem">
+    <strong>Write only what the source states.</strong> Leave salary, location, contact details and dates blank when
+    they are not stated. Blank fields are displayed publicly as “Not specified” and are never invented.
+  </div>
+
+  <OpportunityEditor
+    client:load
+    opportunity={null}
+    categories={activeCategories}
+    companies={companies.data}
+    mode="create"
+  />
+</AdminLayout>

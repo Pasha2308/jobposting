@@ -1,0 +1,268 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadCompanies } from '../../lib/admin-data';
+import { relativeTime } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const q = url.searchParams.get('q') ?? '';
+const companies = await loadCompanies(env, q);
+const verified = companies.data.filter((company) => company.verified).length;
+---
+
+<AdminLayout
+  title="Companies"
+  description="Companies are shared across listings so the same employer is never duplicated. Verified companies are marked on the public site."
+  active="companies"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities"><Icon name="briefcase" size={14} /> Opportunities</a>
+  </div>
+
+  <div class="admin-columns">
+    <form class="panel" data-company-form novalidate>
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="building" size={14} /> Company record</span>
+        <span class="badge badge--draft" data-company-mode>New company</span>
+      </div>
+      <div class="panel__body">
+        <input type="hidden" name="id" value="" />
+        <div class="form-grid">
+          <div class="field col-span-2">
+            <label for="company-name">Name</label>
+            <input class="input" id="company-name" name="name" type="text" required maxlength="160" placeholder="Company or team name" />
+          </div>
+          <div class="field col-span-2">
+            <label for="company-website">Website</label>
+            <input class="input" id="company-website" name="website" type="url" maxlength="1000" placeholder="https://company.com" />
+          </div>
+          <div class="field col-span-2">
+            <label for="company-careers">Careers page</label>
+            <input class="input" id="company-careers" name="careers_url" type="url" maxlength="1000" placeholder="https://company.com/careers" />
+          </div>
+          <div class="field col-span-2">
+            <label for="company-description">Description</label>
+            <textarea class="textarea" id="company-description" name="description" rows={3} maxlength="2000" placeholder="What the company does — kept factual."></textarea>
+          </div>
+          <label class="cluster tiny col-span-2" style="gap:0.5rem;color:var(--text-dim)">
+            <input type="checkbox" name="verified" /> Mark as verified
+          </label>
+        </div>
+        <div class="cluster" style="justify-content:space-between;margin-top:1rem">
+          <button class="btn btn--ghost btn--sm" type="button" data-company-reset>Clear form</button>
+          <button class="btn btn--primary btn--sm" type="submit" data-company-submit>
+            <Icon name="check" size={13} /> Save company
+          </button>
+        </div>
+        <div class="alert alert--success" data-company-status role="status" aria-live="polite" hidden style="margin-top:0.85rem"></div>
+        <div class="alert alert--error" data-company-error role="alert" hidden style="margin-top:0.85rem"></div>
+      </div>
+    </form>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="shield" size={14} /> Company hygiene</span>
+      </div>
+      <div class="panel__body">
+        <div class="stat-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div class="stat-card">
+            <div class="stat-card__label">Companies</div>
+            <div class="stat-card__value">{companies.data.length}</div>
+            <div class="stat-card__hint">Shared by every listing</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__label">Verified</div>
+            <div class="stat-card__value">{verified}</div>
+            <div class="stat-card__hint">Checked against the source</div>
+          </div>
+        </div>
+        <div class="notice" style="margin-top:1rem">
+          <strong>No duplicated employer data.</strong> Listings reference a single company row. When a capture names an
+          existing company, the opportunity is linked to it instead of creating a near-duplicate.
+        </div>
+        <div class="notice" style="margin-top:0.75rem">
+          <strong>Verified means checked.</strong> Only mark a company verified after confirming its website or careers page
+          from a source you trust. Missing data is stored as null, never invented.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:1.5rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="building" size={14} /> Directory</span>
+      <span class="tiny muted">{companies.data.length} shown</span>
+    </div>
+    <div class="panel__body">
+      <form class="admin-filters" method="GET" action="/admin/companies">
+        <div class="field field--grow">
+          <label for="company-q">Search</label>
+          <input class="input" id="company-q" name="q" type="search" value={q} placeholder="Company name" />
+        </div>
+        <button class="btn btn--secondary btn--sm" type="submit">Search</button>
+        {q && <a class="btn btn--ghost btn--sm" href="/admin/companies">Clear</a>}
+      </form>
+
+      {companies.data.length ? (
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Website</th>
+                <th>Careers</th>
+                <th>Verified</th>
+                <th>Updated</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {companies.data.map((company) => (
+                <tr>
+                  <td>
+                    <div class="cell-title">{company.name}</div>
+                    <div class="cell-sub">{company.description ? company.description.slice(0, 80) : 'No description'}</div>
+                  </td>
+                  <td class="tiny">
+                    {company.website ? (
+                      <a href={company.website} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+                        {company.website.replace(/^https?:\/\//, '').slice(0, 30)}
+                      </a>
+                    ) : (
+                      <span class="muted">Not specified</span>
+                    )}
+                  </td>
+                  <td class="tiny">
+                    {company.careers_url ? (
+                      <a href={company.careers_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">Careers</a>
+                    ) : (
+                      <span class="muted">Not specified</span>
+                    )}
+                  </td>
+                  <td>
+                    <span class:list={['badge', company.verified ? 'badge--approved' : 'badge--draft']}>
+                      {company.verified ? 'Verified' : 'Unverified'}
+                    </span>
+                  </td>
+                  <td class="tiny muted">{relativeTime(company.updated_at)}</td>
+                  <td>
+                    <button
+                      class="btn btn--outline btn--sm"
+                      type="button"
+                      data-company-edit
+                      data-id={company.id}
+                      data-name={company.name}
+                      data-website={company.website ?? ''}
+                      data-careers={company.careers_url ?? ''}
+                      data-description={company.description ?? ''}
+                      data-verified={company.verified ? 'true' : 'false'}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="table-empty">
+          {q ? 'No companies match this search.' : 'No companies yet. Create one above or capture a listing.'}
+        </div>
+      )}
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-company-form]');
+  const mode = document.querySelector<HTMLElement>('[data-company-mode]');
+  const submit = document.querySelector<HTMLButtonElement>('[data-company-submit]');
+  const statusBox = document.querySelector<HTMLElement>('[data-company-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-company-error]');
+
+  function resetForm() {
+    form?.reset();
+    const idInput = form?.querySelector<HTMLInputElement>('input[name="id"]');
+    if (idInput) idInput.value = '';
+    if (mode) mode.textContent = 'New company';
+  }
+
+  document.querySelector('[data-company-reset]')?.addEventListener('click', resetForm);
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-company-edit]')) {
+    button.addEventListener('click', () => {
+      if (!form) return;
+      const data = button.dataset;
+      const set = (name: string, value: string) => {
+        const input = form.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`);
+        if (input) input.value = value;
+      };
+      set('id', data.id ?? '');
+      set('name', data.name ?? '');
+      set('website', data.website ?? '');
+      set('careers_url', data.careers ?? '');
+      set('description', data.description ?? '');
+      const verified = form.querySelector<HTMLInputElement>('[name="verified"]');
+      if (verified) verified.checked = data.verified === 'true';
+      if (mode) mode.textContent = 'Editing company';
+      if (statusBox) statusBox.hidden = true;
+      if (errorBox) errorBox.hidden = true;
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!form) return;
+    const data = new FormData(form);
+    const payload = {
+      id: String(data.get('id') ?? '').trim() || undefined,
+      name: String(data.get('name') ?? '').trim(),
+      website: String(data.get('website') ?? '').trim() || null,
+      careers_url: String(data.get('careers_url') ?? '').trim() || null,
+      description: String(data.get('description') ?? '').trim() || null,
+      verified: data.get('verified') === 'on',
+    };
+    if (!payload.name) {
+      if (errorBox) {
+        errorBox.hidden = false;
+        errorBox.textContent = 'A company name is required.';
+      }
+      return;
+    }
+
+    submit?.setAttribute('disabled', 'true');
+    if (statusBox) statusBox.hidden = true;
+    if (errorBox) errorBox.hidden = true;
+
+    try {
+      const response = await fetch('/api/admin/companies', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!response.ok || !result?.ok) {
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = result?.error ?? 'The company could not be saved.';
+        }
+        submit?.removeAttribute('disabled');
+        return;
+      }
+      if (statusBox) {
+        statusBox.hidden = false;
+        statusBox.textContent = 'Saved. Reloading…';
+      }
+      window.setTimeout(() => window.location.reload(), 350);
+    } catch {
+      if (errorBox) {
+        errorBox.hidden = false;
+        errorBox.textContent = 'Network error. Nothing was saved.';
+      }
+      submit?.removeAttribute('disabled');
+    }
+  });
+</script>

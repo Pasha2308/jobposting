@@ -1,0 +1,238 @@
+---
+import PublicLayout from '../layouts/PublicLayout.astro';
+import Icon from '../components/Icon.astro';
+import { isPubliclyVisible, loadDirectory, loadOpportunity, loadOpportunityById, loadSettings } from '../lib/page-data';
+import { REPORT_REASONS } from '../lib/domain/types';
+import { truncate } from '../lib/domain/format';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const submitted = url.searchParams.get('submitted') === '1';
+const error = url.searchParams.get('error');
+const reference = (url.searchParams.get('opportunity') ?? '').trim();
+
+const settings = await loadSettings(env);
+const disabled = settings.available && !settings.data.reports_enabled;
+
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+let selected = null;
+if (reference) {
+  const result = uuid.test(reference) ? await loadOpportunityById(env, reference) : await loadOpportunity(env, reference);
+  selected = isPubliclyVisible(result.data) ? result.data : null;
+}
+
+const directory = !reference && !disabled ? await loadDirectory(env, { pageSize: 48, sort: 'newest' }) : null;
+const options = directory?.data.items ?? [];
+
+const reasonLabels: Record<(typeof REPORT_REASONS)[number], string> = {
+  closed: 'The role is closed or no longer accepting applications',
+  broken_link: 'The application link is broken',
+  incorrect_info: 'The listing contains incorrect information',
+  duplicate: 'This is a duplicate listing',
+  suspicious: 'The listing looks suspicious or fraudulent',
+  other: 'Something else',
+};
+
+const turnstileSiteKey = env.turnstileSiteKey;
+---
+
+<PublicLayout
+  title="Report a listing — Hustler Community"
+  description="Report a closed, broken, inaccurate, duplicate or suspicious opportunity. Reports are reviewed by an editor and can close a listing."
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">Report</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">Help keep the board accurate</span>
+          <h1>Report a listing</h1>
+          <p>
+            Tell us if a role has closed, a link is broken, or something looks wrong. Reports go to the review queue and
+            are handled by an editor. No account required.
+          </p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--tight">
+    <div class="container form-page">
+      <div>
+        {submitted && (
+          <div class="alert alert--success" role="status">
+            <strong>Report received.</strong> Thank you — an editor will review it. If you left a contact email, we will
+            only use it to follow up on this report.
+          </div>
+        )}
+        {error && (
+          <div class="alert alert--error" role="alert">
+            <strong>We could not submit that report.</strong> {error}
+          </div>
+        )}
+
+        {disabled ? (
+          <div class="form-card">
+            <div class="alert alert--warning" style="margin-bottom:0">
+              <strong>Reporting is temporarily closed.</strong> The review queue is paused. Please check back later.
+            </div>
+          </div>
+        ) : reference && !selected ? (
+          <div class="form-card">
+            <div class="alert alert--error" style="margin-bottom:0">
+              <strong>That listing could not be found.</strong> It may have been removed, or the link may be incomplete.
+              Open the listing from the directory and use its report link.
+            </div>
+            <div class="cluster" style="margin-top:1rem">
+              <a class="btn btn--primary btn--sm" href="/opportunities">Browse opportunities</a>
+              <a class="btn btn--outline btn--sm" href="/report">Choose a listing</a>
+            </div>
+          </div>
+        ) : (
+          <form class="form-card" method="POST" action="/api/public/report" novalidate>
+            <div class="form-grid">
+              {selected ? (
+                <>
+                  <input type="hidden" name="opportunity_id" value={selected.id} />
+                  <div class="col-span-2">
+                    <div class="panel" style="margin-bottom:0.5rem">
+                      <div class="panel__body">
+                        <p class="tiny muted mono" style="margin-bottom:0.3rem">REPORTING THIS LISTING</p>
+                        <div style="font-weight:500">{selected.title}</div>
+                        <div class="small muted" style="margin-top:0.2rem">
+                          {selected.company?.name ?? 'Company not specified'} · {selected.status}
+                          {selected.city ? ` · ${selected.city}` : ''}
+                        </div>
+                        {selected.summary && <p class="tiny muted" style="margin-top:0.5rem">{truncate(selected.summary, 180)}</p>}
+                        <div style="margin-top:0.65rem">
+                          <a class="tiny" href={`/opportunities/${selected.slug}`} style="text-decoration:underline">
+                            View the public listing
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div class="field col-span-2">
+                  <label for="opportunity_id">Which listing? <span aria-hidden="true">*</span></label>
+                  <select class="select" id="opportunity_id" name="opportunity_id" required>
+                    <option value="">Select an opportunity…</option>
+                    {options.map((o) => (
+                      <option value={o.id}>
+                        {o.title} — {o.company?.name ?? 'Company not specified'}
+                      </option>
+                    ))}
+                  </select>
+                  <p class="field__hint">
+                    Showing up to 48 recent listings. For a full list, open the listing and use its “Report this listing”
+                    link.
+                  </p>
+                </div>
+              )}
+
+              <div class="field col-span-2">
+                <label for="reason">What is wrong? <span aria-hidden="true">*</span></label>
+                <select class="select" id="reason" name="reason" required>
+                  <option value="">Choose a reason…</option>
+                  {REPORT_REASONS.map((reason) => <option value={reason}>{reasonLabels[reason]}</option>)}
+                </select>
+              </div>
+
+              <div class="field col-span-2">
+                <label for="details">Details</label>
+                <textarea
+                  class="textarea"
+                  id="details"
+                  name="details"
+                  rows={5}
+                  maxlength="1500"
+                  placeholder="Add a link to the closed post, the error you saw, or anything that helps an editor verify the issue."
+                ></textarea>
+                <p class="field__hint">Optional but useful. Do not include private personal information.</p>
+              </div>
+
+              <div class="field col-span-2">
+                <label for="contact_email">Contact email</label>
+                <input
+                  class="input"
+                  id="contact_email"
+                  name="contact_email"
+                  type="email"
+                  maxlength="254"
+                  placeholder="you@example.com"
+                  autocomplete="email"
+                />
+                <p class="field__hint">Optional. Used only to follow up on this report.</p>
+              </div>
+
+              <div class="hp" aria-hidden="true">
+                <label for="report_company">Company</label>
+                <input id="report_company" name="honeypot" type="text" tabindex="-1" autocomplete="off" />
+              </div>
+
+              {turnstileSiteKey && (
+                <div class="field col-span-2">
+                  <div class="cf-turnstile" data-sitekey={turnstileSiteKey} data-callback="onTurnstileSuccess"></div>
+                  <input type="hidden" name="turnstile_token" value="" />
+                  <p class="field__hint">Bot protection by Cloudflare Turnstile. It does not track you across sites.</p>
+                </div>
+              )}
+
+              <div class="col-span-2 cluster" style="justify-content:space-between;align-items:flex-start">
+                <p class="tiny muted" style="max-width:42ch;line-height:1.6">
+                  Reports are reviewed by an editor. A confirmed report can close a listing. See our
+                  <a href="/terms" style="text-decoration:underline">terms</a> and
+                  <a href="/privacy" style="text-decoration:underline">privacy policy</a>.
+                </p>
+                <button class="btn btn--primary" type="submit">
+                  Send report <Icon name="flag" size={14} />
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <aside class="form-aside">
+        <h2>What counts as a report?</h2>
+        <ul class="small muted" style="line-height:1.7;padding-left:1rem;display:flex;flex-direction:column;gap:0.6rem">
+          <li><strong style="color:var(--text)">Closed role.</strong> The team has stopped accepting applications.</li>
+          <li><strong style="color:var(--text)">Broken link.</strong> The application URL or careers page no longer works.</li>
+          <li><strong style="color:var(--text)">Incorrect info.</strong> Salary, location, company or role details are wrong.</li>
+          <li><strong style="color:var(--text)">Duplicate.</strong> The same role is already listed from another source.</li>
+          <li><strong style="color:var(--text)">Suspicious.</strong> The listing asks for payment, personal documents or looks like a scam.</li>
+        </ul>
+
+        <hr class="hr" />
+
+        <h2>What we will do</h2>
+        <ol>
+          <li>An editor opens the source and checks the claim.</li>
+          <li>We update, verify or close the listing as appropriate.</li>
+          <li>If a listing is closed, it is preserved for reference with application actions disabled.</li>
+        </ol>
+
+        <hr class="hr" />
+
+        <p class="tiny muted">
+          Never send money, bank details or identity documents to an employer based on a listing. Report it instead.
+        </p>
+      </aside>
+    </div>
+  </section>
+</PublicLayout>
+
+{turnstileSiteKey && (
+  <>
+    <script is:inline>
+      window.onTurnstileSuccess = function (token) {
+        const input = document.querySelector('input[name="turnstile_token"]');
+        if (input) input.value = token;
+      };
+    </script>
+    <script is:inline async defer src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
+  </>
+)}

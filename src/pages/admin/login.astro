@@ -1,0 +1,112 @@
+---
+import '../../styles/global.css';
+import Icon from '../../components/Icon.astro';
+import { isDatabaseConfigured } from '../../lib/env';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const configured = isDatabaseConfigured(env);
+const error = url.searchParams.get('error');
+const next = url.searchParams.get('next') ?? '/admin';
+const signedOut = url.searchParams.get('signed_out') === '1';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin sign in · Hustler Community Opportunities</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="theme-color" content="#050505" />
+    <link rel="icon" href="/brand/h-mark.svg" type="image/svg+xml" />
+  </head>
+  <body class="admin-body">
+    <div class="login-wrap">
+      <section class="login-brand" aria-label="Hustler Community Opportunities">
+        <div>
+          <img class="login-brand__mark" src="/brand/wordmark.png" alt="Hustler Community" />
+          <h1>Discover opportunities. Connect with builders. Start building.</h1>
+          <p>
+            Private workspace for capturing startup roles, reviewing sources, generating community comments and
+            publishing to the public directory.
+          </p>
+        </div>
+        <div class="tiny muted" style="line-height:1.7">
+          <div class="status-dot status-dot--ok">Server-side authorisation</div>
+          <div class="status-dot status-dot--ok">HttpOnly admin session</div>
+          <div class="status-dot status-dot--ok">Raw source text stays private</div>
+        </div>
+      </section>
+
+      <section class="login-form-wrap">
+        <div class="login-card">
+          <a href="/" class="tiny muted" style="display:inline-flex;align-items:center;gap:0.4rem">
+            <Icon name="arrow-left" size={12} /> Back to the public directory
+          </a>
+          <h2 style="margin-top:1rem">Admin sign in</h2>
+          <p class="small muted" style="margin-top:0.5rem">
+            Accounts are created by an existing administrator. There is no public signup.
+          </p>
+
+          {error && (
+            <div class="alert alert--error" role="alert" style="margin-top:1rem">
+              {error}
+            </div>
+          )}
+          {signedOut && !error && (
+            <div class="alert alert--info" role="status" style="margin-top:1rem">
+              You have been signed out.
+            </div>
+          )}
+          {!configured && (
+            <div class="alert alert--warning" role="status" style="margin-top:1rem">
+              <strong>Supabase is not configured.</strong> Set <code>SUPABASE_URL</code>,
+              <code>SUPABASE_ANON_KEY</code> and <code>SUPABASE_SERVICE_ROLE_KEY</code>, run the migrations and create the
+              first admin profile. See the README.
+            </div>
+          )}
+
+          <form method="POST" action="/api/admin/login" autocomplete="on">
+            <input type="hidden" name="next" value={next} />
+            <div class="field">
+              <label for="email">Email address</label>
+              <input
+                class="input"
+                id="email"
+                name="email"
+                type="email"
+                required
+                maxlength="254"
+                autocomplete="username"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div class="field">
+              <label for="password">Password</label>
+              <input
+                class="input"
+                id="password"
+                name="password"
+                type="password"
+                required
+                maxlength="200"
+                autocomplete="current-password"
+                placeholder="Your admin password"
+              />
+            </div>
+            <button class="btn btn--primary btn--block" type="submit" disabled={!configured}>
+              <Icon name="lock" size={15} /> Sign in
+            </button>
+          </form>
+
+          <p class="login-foot">
+            First-time setup: create a Supabase Auth user, then insert a matching row in
+            <code>admin_profiles</code> using <code>supabase/seed/first_admin.example.sql</code>. A valid Supabase account
+            without an active admin profile is rejected.
+          </p>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

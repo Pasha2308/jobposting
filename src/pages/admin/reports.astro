@@ -1,0 +1,217 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadReports } from '../../lib/admin-data';
+import { REPORT_STATUSES } from '../../lib/domain/types';
+import type { ReportReason, ReportStatus } from '../../lib/domain/types';
+import { STATUS_LABELS, relativeTime } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const statusParam = (url.searchParams.get('status') ?? 'open') as ReportStatus | '';
+const status = REPORT_STATUSES.includes(statusParam as ReportStatus) ? statusParam : 'open';
+
+const [reports, allReports] = await Promise.all([loadReports(env, status), loadReports(env, '')]);
+
+const REASON_LABELS: Record<ReportReason, string> = {
+  closed: 'Role looks closed',
+  broken_link: 'Application link is broken',
+  incorrect_info: 'Incorrect information',
+  duplicate: 'Duplicate listing',
+  suspicious: 'Suspicious or misleading',
+  other: 'Other',
+};
+
+const counts = {
+  open: allReports.data.filter((report) => report.status === 'open').length,
+  reviewing: allReports.data.filter((report) => report.status === 'reviewing').length,
+};
+const tabs: { value: ReportStatus | ''; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'reviewing', label: 'Reviewing' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'dismissed', label: 'Dismissed' },
+  { value: '', label: 'All' },
+];
+---
+
+<AdminLayout
+  title="Reports"
+  description="Public reports about live listings. Review the source, fix the listing or close it, then resolve the report with a note."
+  active="reports"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities"><Icon name="briefcase" size={14} /> Opportunities</a>
+  </div>
+
+  <nav class="tabs" aria-label="Filter reports by status">
+    {tabs.map((tab) => (
+      <a
+        href={tab.value ? `/admin/reports?status=${tab.value}` : '/admin/reports?status='}
+        class:list={[status === tab.value && 'is-active']}
+        aria-current={status === tab.value ? 'page' : undefined}
+      >
+        {tab.label}
+      </a>
+    ))}
+  </nav>
+
+  {status === 'open' && (
+    <div class="stat-grid" style="margin-bottom:1.5rem">
+      <div class="stat-card stat-card--warn">
+        <div class="stat-card__label">Open reports</div>
+        <div class="stat-card__value">{counts.open}</div>
+        <div class="stat-card__hint">Waiting for triage</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">In review</div>
+        <div class="stat-card__value">{counts.reviewing}</div>
+        <div class="stat-card__hint">Being checked by the team</div>
+      </div>
+    </div>
+  )}
+
+  <div class="panel">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="flag" size={14} /> {status ? tabs.find((tab) => tab.value === status)?.label : 'All'} reports</span>
+      <span class="tiny muted">{reports.data.length} shown</span>
+    </div>
+
+    {reports.data.length ? (
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Listing</th>
+              <th>Reason</th>
+              <th>Details</th>
+              <th>Status</th>
+              <th>Reported</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.data.map((report) => (
+              <tr>
+                <td>
+                  {report.opportunity ? (
+                    <>
+                      <div class="cell-title">
+                        <a href={`/admin/opportunities/${report.opportunity.id}`}>{report.opportunity.title}</a>
+                      </div>
+                      <div class="cell-sub">
+                        <span class:list={['badge', `badge--${report.opportunity.status}`]}>
+                          {STATUS_LABELS[report.opportunity.status]}
+                        </span>
+                        <a class="tiny" href={`/opportunities/${report.opportunity.slug}`} target="_blank" rel="noopener" style="text-decoration:underline;margin-left:0.4rem">
+                          Public page <Icon name="arrow-up-right" size={9} />
+                        </a>
+                      </div>
+                    </>
+                  ) : (
+                    <div class="cell-title">Listing removed</div>
+                  )}
+                </td>
+                <td class="tiny">{REASON_LABELS[report.reason]}</td>
+                <td class="tiny muted" style="max-width:34ch">
+                  {report.details ? report.details : <span class="muted">No details supplied</span>}
+                  {report.contact_email && <div class="cell-sub">{report.contact_email}</div>}
+                  {report.resolution_note && <div class="cell-sub">Resolution: {report.resolution_note}</div>}
+                </td>
+                <td><span class:list={['badge', `badge--${report.status}`]}>{report.status}</span></td>
+                <td class="tiny muted">{relativeTime(report.created_at)}</td>
+                <td>
+                  <div class="actions">
+                    {report.status === 'open' && (
+                      <button class="btn btn--outline btn--sm" type="button" data-report-action="review" data-id={report.id}>
+                        Start review
+                      </button>
+                    )}
+                    {['open', 'reviewing'].includes(report.status) && (
+                      <>
+                        <button class="btn btn--primary btn--sm" type="button" data-report-action="resolve" data-id={report.id}>
+                          Resolve
+                        </button>
+                        <button class="btn btn--ghost btn--sm" type="button" data-report-action="dismiss" data-id={report.id}>
+                          Dismiss
+                        </button>
+                        {['closed', 'broken_link'].includes(report.reason) && (
+                          <button class="btn btn--danger btn--sm" type="button" data-report-action="close_job" data-id={report.id}>
+                            Close listing
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div class="table-empty">
+        {status === 'open'
+          ? 'No open reports. Reported listings appear here for triage.'
+          : 'No reports with this status.'}
+      </div>
+    )}
+  </div>
+
+  <div class="alert alert--success" data-report-status role="status" aria-live="polite" hidden style="margin-top:1rem"></div>
+  <div class="alert alert--error" data-report-error role="alert" hidden style="margin-top:1rem"></div>
+</AdminLayout>
+
+<script>
+  const statusBox = document.querySelector<HTMLElement>('[data-report-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-report-error]');
+  const buttons = document.querySelectorAll<HTMLButtonElement>('[data-report-action]');
+
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.reportAction ?? '';
+      const id = button.dataset.id ?? '';
+      if (!action || !id) return;
+
+      let note = '';
+      if (action === 'close_job') {
+        if (!window.confirm('Close the reported listing? Applications will be disabled and structured data removed.')) return;
+      }
+      if (action === 'resolve' || action === 'dismiss') {
+        note = window.prompt(action === 'resolve' ? 'Resolution note (optional)' : 'Why is this report being dismissed? (optional)') ?? '';
+      }
+
+      button.setAttribute('disabled', 'true');
+      if (statusBox) statusBox.hidden = true;
+      if (errorBox) errorBox.hidden = true;
+
+      try {
+        const response = await fetch(`/api/admin/reports/${id}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action, note }),
+        });
+        const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+        if (!response.ok || !result?.ok) {
+          if (errorBox) {
+            errorBox.hidden = false;
+            errorBox.textContent = result?.error ?? 'The report action failed.';
+          }
+          button.removeAttribute('disabled');
+          return;
+        }
+        if (statusBox) {
+          statusBox.hidden = false;
+          statusBox.textContent = 'Report updated. Reloading…';
+        }
+        window.setTimeout(() => window.location.reload(), 350);
+      } catch {
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = 'Network error. Nothing was changed.';
+        }
+        button.removeAttribute('disabled');
+      }
+    });
+  }
+</script>

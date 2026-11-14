@@ -1,0 +1,261 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import Icon from '../../components/Icon.astro';
+import OpportunityCard from '../../components/OpportunityCard.astro';
+import OpportunityFilters from '../../components/OpportunityFilters.astro';
+import Pagination from '../../components/Pagination.astro';
+import EmptyState from '../../components/EmptyState.astro';
+import { loadCategories, loadCountries, loadDirectory, loadLocations } from '../../lib/page-data';
+import { activeFilterCount, parseDirectoryParams, toSearchFilters, withParams } from '../../lib/search-params';
+import { EMPLOYMENT_TYPE_LABELS, WORK_MODE_LABELS } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const params = parseDirectoryParams(Astro.url);
+const [result, categories, countries, locations] = await Promise.all([
+  loadDirectory(env, toSearchFilters(params)),
+  loadCategories(env),
+  loadCountries(env),
+  loadLocations(env),
+]);
+
+const search = result.data;
+const activeCount = activeFilterCount(params);
+const categoryName = categories.data.find((c) => c.slug === params.category)?.name;
+const cityLabel = locations.data.find((l) => l.city.toLowerCase() === params.city.toLowerCase());
+
+type Chip = { label: string; href: string };
+const chips: Chip[] = [];
+const without = (patch: Parameters<typeof withParams>[1]) => withParams(params, patch);
+if (params.q) chips.push({ label: `“${params.q}”`, href: without({ q: '' }) });
+if (params.category) chips.push({ label: categoryName ?? params.category, href: without({ category: '' }) });
+if (params.country) chips.push({ label: params.country, href: without({ country: '' }) });
+if (params.city)
+  chips.push({ label: cityLabel ? `${cityLabel.city}${cityLabel.country ? `, ${cityLabel.country}` : ''}` : params.city, href: without({ city: '' }) });
+for (const mode of params.workMode) {
+  chips.push({
+    label: WORK_MODE_LABELS[mode],
+    href: without({ workMode: params.workMode.filter((m) => m !== mode) }),
+  });
+}
+for (const type of params.employmentType) {
+  chips.push({
+    label: EMPLOYMENT_TYPE_LABELS[type],
+    href: without({ employmentType: params.employmentType.filter((t) => t !== type) }),
+  });
+}
+if (params.experience) {
+  const label = params.experience === 'entry' ? 'Entry level' : params.experience === 'mid' ? 'Mid level' : 'Senior';
+  chips.push({ label, href: without({ experience: '' }) });
+}
+if (params.salaryDisclosed) chips.push({ label: 'Salary disclosed', href: without({ salaryDisclosed: false }) });
+if (params.currency) chips.push({ label: params.currency, href: without({ currency: '' }) });
+
+const sortOptions = [
+  { value: 'newest', label: 'Newest discovered' },
+  { value: 'source_date', label: 'Original post date' },
+  { value: 'oldest', label: 'Oldest discovered' },
+  { value: 'relevance', label: 'Best match' },
+] as const;
+
+// Hidden inputs for the sort form (all filters except sort/page).
+const sortHidden: [string, string][] = [];
+if (params.q) sortHidden.push(['q', params.q]);
+if (params.category) sortHidden.push(['category', params.category]);
+if (params.country) sortHidden.push(['country', params.country]);
+if (params.city) sortHidden.push(['city', params.city]);
+for (const mode of params.workMode) sortHidden.push(['workMode', mode]);
+for (const type of params.employmentType) sortHidden.push(['employmentType', type]);
+if (params.experience) sortHidden.push(['experience', params.experience]);
+if (params.salaryDisclosed) sortHidden.push(['salary', 'disclosed']);
+if (params.currency) sortHidden.push(['currency', params.currency]);
+
+const searchHidden: [string, string][] = sortHidden.filter(([key]) => key !== 'q');
+if (params.sort !== 'newest') searchHidden.push(['sort', params.sort]);
+
+const title = params.q
+  ? `Search: ${params.q}`
+  : categoryName
+    ? `${categoryName} opportunities`
+    : 'Startup opportunities';
+const indexable = activeCount === 0 && params.page === 1;
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: title,
+    url: `${env.siteUrl}/opportunities`,
+    description: 'Browse curated startup opportunities with real sources and direct application routes.',
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: search.items.length,
+      itemListElement: search.items.map((o, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        url: `${env.siteUrl}/opportunities/${o.slug}`,
+        name: o.title,
+      })),
+    },
+  },
+];
+---
+
+<PublicLayout
+  title={`${title} — Hustler Community Opportunities`}
+  description="Browse curated startup opportunities by category, location, work mode and experience. Every listing links to its original source and a real application route."
+  indexable={indexable}
+  structuredData={structuredData}
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">Opportunities</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">The directory</span>
+          <h1>{title}</h1>
+          <p>
+            Search reviewed startup roles and filter by what actually matters. Filter URLs are shareable, and every
+            listing keeps its original source attached.
+          </p>
+        </div>
+        <div class="page-head__aside">
+          <strong>{search.total.toLocaleString('en-US')}</strong>
+          {search.total === 1 ? 'matching role' : 'matching roles'}
+          {activeCount > 0 && <div><a href="/opportunities" style="text-decoration:underline">Clear {activeCount} filters</a></div>}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    {!result.available && (
+      <div class="alert alert--info" role="status" style="margin-top:1.5rem">
+        <strong>Database not connected.</strong> Filters are working, but live results cannot be loaded in this
+        environment. {result.error ?? ''}
+      </div>
+    )}
+
+    <div class="directory">
+      <aside class="filters" id="directory-filters" aria-label="Opportunity filters">
+        <OpportunityFilters params={params} categories={categories.data} countries={countries.data} cities={locations.data} />
+      </aside>
+
+      <div class="directory__main">
+        <div class="directory__bar" style="margin-bottom:1rem">
+          <form class="search-bar" method="GET" action="/opportunities" role="search" style="flex:1;max-width:520px">
+            <span class="search-bar__icon"><Icon name="search" size={16} /></span>
+            <label class="sr-only" for="directory-search">Search opportunities</label>
+            <input
+              id="directory-search"
+              name="q"
+              type="search"
+              value={params.q}
+              placeholder="Search roles, skills, companies…"
+              autocomplete="off"
+            />
+            {searchHidden.map(([name, value]) => <input type="hidden" name={name} value={value} />)}
+            <button class="btn btn--secondary btn--sm" type="submit">Search</button>
+          </form>
+          <button
+            type="button"
+            class="btn btn--outline btn--sm filter-toggle"
+            data-filter-toggle
+            aria-expanded="false"
+            aria-controls="directory-filters"
+          >
+            <Icon name="filter" size={13} /> Filters{activeCount > 0 ? ` (${activeCount})` : ''}
+          </button>
+        </div>
+
+        <div class="directory__bar">
+          <div class="directory__count">
+            Showing <strong>{search.items.length.toLocaleString('en-US')}</strong> of{' '}
+            <strong>{search.total.toLocaleString('en-US')}</strong>
+            {search.totalPages > 1 && <> · page {search.page} of {search.totalPages}</>}
+          </div>
+          <form class="directory__sort" method="GET" action="/opportunities">
+            {sortHidden.map(([name, value]) => <input type="hidden" name={name} value={value} />)}
+            <label class="tiny muted" for="directory-sort">Sort</label>
+            <select id="directory-sort" name="sort" class="select" data-auto-submit>
+              {sortOptions.map((option) => (
+                <option value={option.value} selected={params.sort === option.value}>{option.label}</option>
+              ))}
+            </select>
+            <noscript><button class="btn btn--ghost btn--sm" type="submit">Apply</button></noscript>
+          </form>
+        </div>
+
+        {chips.length > 0 && (
+          <div class="active-filters" aria-label="Active filters">
+            {chips.map((chip) => (
+              <span class="filter-chip">
+                {chip.label}
+                <a href={chip.href} aria-label={`Remove ${chip.label} filter`}><Icon name="x" size={11} /></a>
+              </span>
+            ))}
+            <a href="/opportunities" class="tiny muted" style="align-self:center;text-decoration:underline">Clear all</a>
+          </div>
+        )}
+
+        {search.items.length ? (
+          <div class="opp-grid opp-grid--two">
+            {search.items.map((o) => <OpportunityCard opportunity={o} />)}
+          </div>
+        ) : (
+          <EmptyState
+            title={activeCount > 0 ? 'No roles match these filters' : 'No opportunities published yet'}
+            description={
+              activeCount > 0
+                ? 'Try removing a filter, widening the location, or clearing the search. Filters only search reviewed, published listings.'
+                : 'The directory is connected and waiting for the first reviewed opportunity. It never displays placeholder jobs.'
+            }
+            icon="search"
+          >
+            <div class="cluster" style="justify-content:center">
+              {activeCount > 0 && <a href="/opportunities" class="btn btn--primary btn--sm">Clear filters</a>}
+              <a href="/submit" class="btn btn--outline btn--sm">Submit an opportunity</a>
+            </div>
+          </EmptyState>
+        )}
+
+        <Pagination params={params} totalPages={search.totalPages} />
+      </div>
+    </div>
+  </div>
+
+  <div hidden data-search-event data-query={params.q} data-total={String(search.total)}></div>
+</PublicLayout>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>('[data-filter-toggle]');
+  const filters = document.getElementById('directory-filters');
+  toggle?.addEventListener('click', () => {
+    const open = filters?.classList.toggle('is-open') ?? false;
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+
+  const sort = document.querySelector<HTMLSelectElement>('[data-auto-submit]');
+  sort?.addEventListener('change', () => sort.form?.requestSubmit());
+
+  // One search event per query per session, so the analytics stay meaningful.
+  const searchEvent = document.querySelector<HTMLElement>('[data-search-event]');
+  const query = searchEvent?.dataset.query?.trim() ?? '';
+  if (query) {
+    const key = `hc-search:${query}`;
+    try {
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        void fetch('/api/public/track', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ event_type: 'search', metadata: { query } }),
+          keepalive: true,
+        });
+      }
+    } catch {
+      // Analytics is optional.
+    }
+  }
+</script>

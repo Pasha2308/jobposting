@@ -1,0 +1,116 @@
+---
+import PublicLayout from '../layouts/PublicLayout.astro';
+
+const updated = '13 November 2026';
+---
+
+<PublicLayout
+  title="Privacy policy — Hustler Community Opportunities"
+  description="How Hustler Community Opportunities handles data: anonymous analytics, public submissions, admin authentication, third-party processors, retention and your choices."
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">Privacy</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">Legal</span>
+          <h1>Privacy policy</h1>
+          <p>A short, concrete description of what this site stores and why. Last updated {updated}.</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container--narrow prose">
+      <h2>Who we are</h2>
+      <p>
+        Hustler Community Opportunities (“the directory”) is a curated opportunity directory operated as part of the
+        Hustler Community. The public site is at this domain; the community site is
+        <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">hustlerscommunity.in</a>.
+      </p>
+
+      <h2>What we collect</h2>
+      <h3>Browsing the directory</h3>
+      <p>
+        You can browse and search without an account. We record anonymous aggregate events — a page view, an outbound
+        application click, a share or a search query — against a listing or in aggregate. These events do not include
+        your name, email address, IP address or user agent, and we do not create a profile of you. Search queries are
+        stored as short strings for aggregate reporting and are not linked to an identity.
+      </p>
+      <p>
+        The public pages use <code>sessionStorage</code> in your browser to avoid counting the same view or search twice
+        in one session. That value stays in your browser and is not sent to us as an identifier. We do not use
+        advertising cookies or third-party analytics scripts.
+      </p>
+
+      <h3>Submitting an opportunity or a report</h3>
+      <p>
+        The public suggestion form asks for a source URL and details about the role. The report form asks for the reason
+        for the report, optional details, and an optional contact email. If you provide a contact email, we use it only
+        to follow up on that report. Submissions and reports are reviewed by an editor; they are not published
+        automatically.
+      </p>
+      <p>
+        Source text you paste or submit is stored privately for review and is never exposed on the public site. Public
+        listing pages contain only the reviewed, structured fields.
+      </p>
+
+      <h3>Admin workspace</h3>
+      <p>
+        The admin workspace is restricted to allowlisted administrators. Sign-in uses Supabase Auth. Session tokens are
+        stored in HttpOnly, SameSite=Lax cookies; they are not readable by client-side JavaScript. Admin activity is
+        logged for accountability (actor, action, entity and time).
+      </p>
+
+      <h2>Third-party processors</h2>
+      <ul>
+        <li><strong>Supabase</strong> — database and authentication hosting.</li>
+        <li><strong>Cloudflare Pages</strong> — application hosting, plus optional Cloudflare Turnstile for bot protection on public forms.</li>
+        <li><strong>Google Gemini</strong> — when configured, pasted source text is sent server-side to extract structured fields. The integration is used for extraction only; the model does not publish anything.</li>
+        <li><strong>Telegram</strong> — when the owner bot is configured, the owner can submit a source and receive a review preview. Telegram processes those messages under its own terms.</li>
+      </ul>
+      <p>
+        These providers process data on our behalf to run the service. We do not sell personal data or share it for
+        advertising.
+      </p>
+
+      <h2>Retention</h2>
+      <p>
+        Published listing fields are retained while the listing is useful, including after a role closes. Raw source
+        captures are private and are retained for a configurable period (default 180 days) so that a listing can be
+        audited or corrected. Reports are retained while needed to resolve the issue. Anonymous analytics events are
+        retained for aggregate reporting and are not tied to individuals.
+      </p>
+
+      <h2>Your choices</h2>
+      <p>
+        You can browse without providing any personal data. If you sent a report with a contact email and want it
+        removed, contact us through the community site or the report form and describe the report. Because analytics are
+        anonymous, we cannot look up or delete an individual browsing history — we do not have one.
+      </p>
+
+      <h2>Security</h2>
+      <p>
+        Admin routes are protected server-side, database access is restricted with row-level security, secrets are kept
+        in server-side environment variables, and raw source text is not publicly readable. No system is perfectly
+        secure; if you believe you have found a vulnerability, please report it privately through the community site
+        rather than publicly disclosing it.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        We may update this policy as the directory changes. The date at the top of the page shows the current version.
+        Material changes will be reflected here before they take effect.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Privacy questions can be sent through the <a href="/report">report form</a> or the
+        <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">Hustler Community site</a>.
+      </p>
+    </div>
+  </section>
+</PublicLayout>

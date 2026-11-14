@@ -1,0 +1,338 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadCaptures } from '../../lib/admin-data';
+import { CAPTURE_STATUSES, SOURCE_TYPES } from '../../lib/domain/types';
+import { formatDateTime, relativeTime } from '../../lib/domain/format';
+import { isAiConfigured } from '../../lib/env';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const status = (url.searchParams.get('status') ?? '') as (typeof CAPTURE_STATUSES)[number] | '';
+const q = url.searchParams.get('q') ?? '';
+const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+
+const captures = await loadCaptures(env, { status, q, page, pageSize: 15 });
+const aiReady = isAiConfigured(env);
+const totalPages = Math.max(1, Math.ceil(captures.data.total / 15));
+
+const sourceLabels: Record<(typeof SOURCE_TYPES)[number], string> = {
+  linkedin_post: 'LinkedIn post',
+  company_website: 'Company website',
+  recruiter_announcement: 'Recruiter announcement',
+  public_submission: 'Public submission',
+  other: 'Other source',
+};
+
+const stages = [
+  'Received',
+  'Validating',
+  'Duplicate check',
+  'Extracting',
+  'Pending review',
+  'Approved',
+  'Published',
+];
+---
+
+<AdminLayout
+  title="Capture"
+  description="Paste the original post, keep the source, and let the pipeline extract a draft. Raw text is stored privately and every failure is preserved for retry."
+  active="capture"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/pending"><Icon name="inbox" size={14} /> Review queue</a>
+  </div>
+
+  {!aiReady && (
+    <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
+      <strong>AI extraction is not configured.</strong> Captures can still be received and saved, but extraction will
+      fail until <code>GEMINI_API_KEY</code> is set. The capture is preserved and can be retried from its review page.
+    </div>
+  )}
+
+  <div class="admin-columns">
+    <form class="panel" id="capture-form" data-capture-form novalidate>
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="zap" size={14} /> New capture</span>
+        <span class="badge badge--draft">Source preserved</span>
+      </div>
+      <div class="panel__body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="source_type">Source type</label>
+            <select class="select" id="source_type" name="sourceType">
+              {SOURCE_TYPES.map((type) => (
+                <option value={type} selected={type === 'linkedin_post'}>{sourceLabels[type]}</option>
+              ))}
+            </select>
+          </div>
+          <div class="field">
+            <label for="company">Company (optional)</label>
+            <input class="input" id="company" name="company" type="text" maxlength="160" placeholder="Company or team name" />
+            <p class="field__hint">A hint only — the extractor still works from the text.</p>
+          </div>
+          <div class="field col-span-2">
+            <label for="source_url">Source URL</label>
+            <input
+              class="input"
+              id="source_url"
+              name="sourceUrl"
+              type="url"
+              maxlength="1000"
+              placeholder="https://www.linkedin.com/posts/… or a public job page"
+              inputmode="url"
+            />
+            <p class="field__hint">
+              Public URLs only. We do not scrape LinkedIn or log in on your behalf — paste the text you copied yourself.
+            </p>
+          </div>
+          <div class="field col-span-2">
+            <label for="raw_text">Original post text</label>
+            <textarea
+              class="textarea"
+              id="raw_text"
+              name="rawText"
+              rows={12}
+              required
+              minlength="40"
+              maxlength="60000"
+              placeholder="Paste the full post, message or job description here. Include the application instructions exactly as written."
+            ></textarea>
+            <p class="field__hint">Minimum 40 characters. Never invent missing salary, location or contact details.</p>
+          </div>
+          <div class="field col-span-2">
+            <label for="notes">Internal notes (optional)</label>
+            <textarea class="textarea" id="notes" name="notes" rows={2} maxlength="2000" placeholder="Context for the reviewer — never shown publicly."></textarea>
+          </div>
+        </div>
+
+        <div class="cluster" style="justify-content:space-between;margin-top:1rem">
+          <p class="tiny muted" style="max-width:46ch;line-height:1.6">
+            Captures go through validation, URL/ID deduplication, similar-role checks and extraction. Nothing publishes
+            automatically.
+          </p>
+          <button class="btn btn--primary" type="submit" data-capture-submit>
+            <Icon name="upload" size={14} /> Capture &amp; extract
+          </button>
+        </div>
+
+        <div class="alert alert--info" data-capture-status role="status" aria-live="polite" hidden style="margin-top:1rem"></div>
+        <div class="alert alert--error" data-capture-error role="alert" hidden style="margin-top:1rem"></div>
+      </div>
+    </form>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="layers" size={14} /> Pipeline</span>
+        <span class="tiny muted">No auto-publish</span>
+      </div>
+      <div class="panel__body">
+        <ol class="stack-sm" style="list-style:none;counter-reset:stage">
+          {stages.map((stage, index) => (
+            <li style="display:flex;gap:0.6rem;align-items:center;font-size:var(--fs-xs);color:var(--text-dim)">
+              <span class="mono muted" style="width:1.6rem;flex-shrink:0">{String(index + 1).padStart(2, '0')}</span>
+              <span>{stage}</span>
+            </li>
+          ))}
+        </ol>
+        <div class="notice" style="margin-top:1rem">
+          <strong>Failure is safe.</strong> If extraction fails or the model returns malformed output, the capture keeps
+          its raw text with status <code>extraction_failed</code>. Retry from the capture page — success is never faked.
+        </div>
+        <div class="notice" style="margin-top:0.75rem">
+          <strong>Duplicate protection.</strong> Exact duplicates are blocked by normalised URL, LinkedIn post ID and an
+          existing-listing lookup. Similar roles are flagged for a human; nothing is auto-merged.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:1.5rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="inbox" size={14} /> Captures</span>
+      <span class="tiny muted">{captures.data.total} total</span>
+    </div>
+
+    <div class="panel__body">
+      <form class="admin-filters" method="GET" action="/admin/capture">
+        <div class="field field--grow">
+          <label for="capture-q">Search</label>
+          <input class="input" id="capture-q" name="q" type="search" value={q} placeholder="Company, URL, text…" />
+        </div>
+        <div class="field">
+          <label for="capture-status">Status</label>
+          <select class="select" id="capture-status" name="status">
+            <option value="">All statuses</option>
+            {CAPTURE_STATUSES.map((value) => (
+              <option value={value} selected={status === value}>{value.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+        </div>
+        <button class="btn btn--secondary btn--sm" type="submit">Filter</button>
+        {(q || status) && <a class="btn btn--ghost btn--sm" href="/admin/capture">Clear</a>}
+      </form>
+
+      {captures.data.items.length ? (
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Capture</th>
+                <th>Status</th>
+                <th>Source</th>
+                <th>Attempts</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {captures.data.items.map((capture) => (
+                <tr>
+                  <td>
+                    <div class="cell-title">
+                      <a href={`/admin/captures/${capture.id}`}>{capture.submitted_company ?? 'Untitled capture'}</a>
+                    </div>
+                    <div class="cell-sub">{capture.raw_text.slice(0, 90).replace(/\s+/g, ' ')}…</div>
+                  </td>
+                  <td>
+                    <span class:list={['badge', `badge--${capture.status}`]}>{capture.status.replace(/_/g, ' ')}</span>
+                    {capture.error_message && <div class="cell-sub" style="max-width:28ch">{capture.error_message}</div>}
+                  </td>
+                  <td>
+                    {capture.source_url ? (
+                      <a class="tiny" href={capture.source_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+                        {capture.source_type.replace(/_/g, ' ')} <Icon name="arrow-up-right" size={10} />
+                      </a>
+                    ) : (
+                      <span class="tiny muted">{capture.source_type.replace(/_/g, ' ')}</span>
+                    )}
+                  </td>
+                  <td class="mono tiny">{capture.attempt_count}</td>
+                  <td class="tiny muted" title={formatDateTime(capture.created_at)}>{relativeTime(capture.created_at)}</td>
+                  <td>
+                    <a class="btn btn--outline btn--sm" href={`/admin/captures/${capture.id}`}>Open</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="table-empty">
+          No captures match this view. Paste a source post above to create the first one.
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div class="cluster" style="justify-content:space-between;margin-top:1rem">
+          <span class="tiny muted">Page {page} of {totalPages}</span>
+          <div class="cluster">
+            {page > 1 && (
+              <a class="btn btn--ghost btn--sm" href={`/admin/capture?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), page: String(page - 1) })}`}>
+                <Icon name="chevron-left" size={13} /> Previous
+              </a>
+            )}
+            {page < totalPages && (
+              <a class="btn btn--ghost btn--sm" href={`/admin/capture?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), page: String(page + 1) })}`}>
+                Next <Icon name="chevron-right" size={13} />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-capture-form]');
+  const submit = document.querySelector<HTMLButtonElement>('[data-capture-submit]');
+  const statusBox = document.querySelector<HTMLElement>('[data-capture-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-capture-error]');
+
+  function showStatus(text: string) {
+    if (!statusBox) return;
+    statusBox.hidden = false;
+    statusBox.textContent = text;
+  }
+  function showError(text: string) {
+    if (!errorBox) return;
+    errorBox.hidden = false;
+    errorBox.textContent = text;
+  }
+  function clearMessages() {
+    if (statusBox) statusBox.hidden = true;
+    if (errorBox) errorBox.hidden = true;
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearMessages();
+    const data = new FormData(form);
+    const payload = {
+      sourceType: String(data.get('sourceType') ?? 'linkedin_post'),
+      sourceUrl: String(data.get('sourceUrl') ?? '').trim() || null,
+      company: String(data.get('company') ?? '').trim() || null,
+      notes: String(data.get('notes') ?? '').trim() || null,
+      rawText: String(data.get('rawText') ?? ''),
+    };
+
+    if (payload.rawText.trim().length < 40) {
+      showError('Paste at least 40 characters from the original post.');
+      return;
+    }
+
+    submit?.setAttribute('disabled', 'true');
+    showStatus('Received. Validating the source and checking for duplicates, then extracting…');
+
+    try {
+      const response = await fetch('/api/admin/capture', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            captureId?: string;
+            captureStatus?: string;
+            opportunityId?: string | null;
+            reviewUrl?: string;
+            genuine?: boolean;
+            warnings?: string[];
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !result) {
+        const message = (result as { error?: string } | null)?.error ?? 'The capture could not be processed.';
+        showError(message);
+        submit?.removeAttribute('disabled');
+        return;
+      }
+
+      if (result.ok) {
+        showStatus('Extraction finished. Opening the review page…');
+        window.location.href = result.reviewUrl ?? (result.captureId ? `/admin/captures/${result.captureId}` : '/admin/capture');
+        return;
+      }
+
+      showError(
+        `${result.error ?? 'Extraction failed.'} The capture was saved — open it to inspect the source and retry.`,
+      );
+      if (result.reviewUrl) {
+        const link = document.createElement('a');
+        link.href = result.reviewUrl;
+        link.className = 'btn btn--outline btn--sm';
+        link.style.marginTop = '0.6rem';
+        link.textContent = 'Open captured source';
+        errorBox?.appendChild(link);
+      }
+      submit?.removeAttribute('disabled');
+    } catch {
+      showError('Network error. The capture may not have been received — check the captures table before retrying.');
+      submit?.removeAttribute('disabled');
+    }
+  });
+</script>

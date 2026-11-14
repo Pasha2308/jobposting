@@ -1,0 +1,118 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import Icon from '../../components/Icon.astro';
+import OpportunityCard from '../../components/OpportunityCard.astro';
+import Pagination from '../../components/Pagination.astro';
+import EmptyState from '../../components/EmptyState.astro';
+import { loadDirectory, loadLocations } from '../../lib/page-data';
+import { parseDirectoryParams } from '../../lib/search-params';
+
+const env = Astro.locals.env;
+const slug = Astro.params.slug ?? '';
+const { data: locations } = await loadLocations(env);
+const location = locations.find((l) => l.slug === slug);
+if (!location) {
+  return Astro.rewrite('/404');
+}
+
+const params = parseDirectoryParams(Astro.url);
+const result = await loadDirectory(env, {
+  city: location.city,
+  country: location.country ?? undefined,
+  sort: params.sort,
+  page: params.page,
+  pageSize: 12,
+});
+const search = result.data;
+const base = `/locations/${location.slug}`;
+const place = `${location.city}${location.country ? `, ${location.country}` : ''}`;
+const locationParams = {
+  ...params,
+  q: '',
+  category: '',
+  country: location.country ?? '',
+  city: location.city,
+  workMode: [],
+  employmentType: [],
+  experience: '' as const,
+  salaryDisclosed: false,
+  currency: '',
+  page: search.page,
+};
+---
+
+<PublicLayout
+  title={`Startup opportunities in ${place} — Hustler Community`}
+  description={`Browse ${search.total} curated startup ${search.total === 1 ? 'opportunity' : 'opportunities'} in ${place}. Real sources and direct application routes.`}
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span>
+        <a href="/locations">Locations</a><span class="sep">/</span>
+        <span aria-current="page">{place}</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange"><Icon name="map-pin" size={12} /> Location</span>
+          <h1>Opportunities in {place}</h1>
+          <p>
+            Reviewed startup roles that explicitly list {location.city} as their location. Remote roles without a city
+            are available in the main directory.
+          </p>
+        </div>
+        <div class="page-head__aside">
+          <strong>{search.total.toLocaleString('en-US')}</strong>
+          {search.total === 1 ? 'role' : 'roles'}
+          <div><a href="/locations" style="text-decoration:underline">All locations</a></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--tight">
+    <div class="container">
+      <div class="directory__bar">
+        <div class="directory__count">
+          Showing <strong>{search.items.length}</strong> of <strong>{search.total}</strong>
+        </div>
+        <div class="cluster">
+          <form method="GET" action={base} class="directory__sort">
+            <label class="tiny muted" for="location-sort">Sort</label>
+            <select id="location-sort" name="sort" class="select" data-auto-submit>
+              <option value="newest" selected={params.sort === 'newest'}>Newest discovered</option>
+              <option value="source_date" selected={params.sort === 'source_date'}>Original post date</option>
+              <option value="oldest" selected={params.sort === 'oldest'}>Oldest discovered</option>
+            </select>
+            <noscript><button class="btn btn--ghost btn--sm" type="submit">Apply</button></noscript>
+          </form>
+          <a href={`/opportunities?city=${encodeURIComponent(location.city)}`} class="btn btn--outline btn--sm">Open in full directory</a>
+        </div>
+      </div>
+
+      {search.items.length ? (
+        <div class="opp-grid opp-grid--two">
+          {search.items.map((o) => <OpportunityCard opportunity={o} />)}
+        </div>
+      ) : (
+        <EmptyState
+          title={`No roles currently listed in ${place}`}
+          description="This location may have filled its roles. Browse the full directory or remote opportunities instead."
+          icon="map-pin"
+        >
+          <div class="cluster" style="justify-content:center">
+            <a href="/opportunities" class="btn btn--primary btn--sm">Explore all opportunities</a>
+            <a href="/opportunities?workMode=remote" class="btn btn--outline btn--sm">Remote roles</a>
+          </div>
+        </EmptyState>
+      )}
+
+      <Pagination params={{ ...locationParams, page: search.page }} totalPages={search.totalPages} base={base} />
+    </div>
+  </section>
+</PublicLayout>
+
+<script>
+  const sort = document.querySelector<HTMLSelectElement>('[data-auto-submit]');
+  sort?.addEventListener('change', () => sort.form?.requestSubmit());
+</script>

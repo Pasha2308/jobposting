@@ -1,0 +1,102 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import OpportunityCard from '../../components/OpportunityCard.astro';
+import Pagination from '../../components/Pagination.astro';
+import EmptyState from '../../components/EmptyState.astro';
+import { loadCategory, loadDirectory } from '../../lib/page-data';
+import { parseDirectoryParams } from '../../lib/search-params';
+
+const env = Astro.locals.env;
+const slug = Astro.params.slug ?? '';
+const { data: category } = await loadCategory(env, slug);
+if (!category || !category.is_active) {
+  return Astro.rewrite('/404');
+}
+
+const params = parseDirectoryParams(Astro.url);
+const result = await loadDirectory(env, {
+  category: category.slug,
+  sort: params.sort,
+  page: params.page,
+  pageSize: 12,
+});
+const search = result.data;
+const categoryParams = { ...params, category: category.slug, q: '', country: '', city: '', workMode: [], employmentType: [], experience: '' as const, salaryDisclosed: false, currency: '' };
+const base = `/categories/${category.slug}`;
+---
+
+<PublicLayout
+  title={`${category.name} opportunities — Hustler Community`}
+  description={category.description ?? `Browse curated ${category.name} startup opportunities with real sources and direct application routes.`}
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span>
+        <a href="/categories">Categories</a><span class="sep">/</span>
+        <span aria-current="page">{category.name}</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">Category</span>
+          <h1>{category.name}</h1>
+          <p>
+            {category.description ??
+              `Reviewed startup roles in ${category.name.toLowerCase()}. Every listing links back to its original source and a usable application route.`}
+          </p>
+        </div>
+        <div class="page-head__aside">
+          <strong>{search.total.toLocaleString('en-US')}</strong>
+          {search.total === 1 ? 'role' : 'roles'}
+          <div><a href="/categories" style="text-decoration:underline">All categories</a></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--tight">
+    <div class="container">
+      <div class="directory__bar">
+        <div class="directory__count">
+          Showing <strong>{search.items.length}</strong> of <strong>{search.total}</strong>
+        </div>
+        <div class="cluster">
+          <form method="GET" action={base} class="directory__sort">
+            <label class="tiny muted" for="category-sort">Sort</label>
+            <select id="category-sort" name="sort" class="select" data-auto-submit>
+              <option value="newest" selected={params.sort === 'newest'}>Newest discovered</option>
+              <option value="source_date" selected={params.sort === 'source_date'}>Original post date</option>
+              <option value="oldest" selected={params.sort === 'oldest'}>Oldest discovered</option>
+            </select>
+            <noscript><button class="btn btn--ghost btn--sm" type="submit">Apply</button></noscript>
+          </form>
+          <a href={`/opportunities?category=${category.slug}`} class="btn btn--outline btn--sm">Open in full directory</a>
+        </div>
+      </div>
+
+      {search.items.length ? (
+        <div class="opp-grid opp-grid--two">
+          {search.items.map((o) => <OpportunityCard opportunity={o} />)}
+        </div>
+      ) : (
+        <EmptyState
+          title={`No ${category.name.toLowerCase()} roles yet`}
+          description="This category is ready but has no published listings. Try the full directory or submit a role you know is open."
+          icon="briefcase"
+        >
+          <div class="cluster" style="justify-content:center">
+            <a href="/opportunities" class="btn btn--primary btn--sm">Explore all opportunities</a>
+            <a href="/submit" class="btn btn--outline btn--sm">Submit an opportunity</a>
+          </div>
+        </EmptyState>
+      )}
+
+      <Pagination params={{ ...categoryParams, page: search.page }} totalPages={search.totalPages} base={base} />
+    </div>
+  </section>
+</PublicLayout>
+
+<script>
+  const sort = document.querySelector<HTMLSelectElement>('[data-auto-submit]');
+  sort?.addEventListener('change', () => sort.form?.requestSubmit());
+</script>

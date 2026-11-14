@@ -1,0 +1,405 @@
+---
+import PublicLayout from '../layouts/PublicLayout.astro';
+import Icon from '../components/Icon.astro';
+import OpportunityCard from '../components/OpportunityCard.astro';
+import OpportunityRow from '../components/OpportunityRow.astro';
+import EmptyState from '../components/EmptyState.astro';
+import { loadHome } from '../lib/page-data';
+import { pluralize } from '../lib/domain/format';
+
+const env = Astro.locals.env;
+const { data: home, available, error } = await loadHome(env, 6);
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Hustler Community Opportunities',
+    url: env.siteUrl,
+    description:
+      'A curated directory of startup opportunities sourced from founders, recruiters and teams, reviewed before publishing.',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${env.siteUrl}/opportunities?q={search_term_string}`,
+      'query-input': 'required name=search_term_string',
+    },
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'Hustler Community',
+    url: 'https://hustlerscommunity.in/',
+    sameAs: ['https://www.linkedin.com/company/hustlercommunity'],
+  },
+];
+
+const signalItems = home.latest.slice(0, 5);
+const visibleCategories = home.categories.filter((c) => c.opportunity_count > 0).slice(0, 8);
+const activeCities = home.locations.length;
+const reviewed = home.totalPublished > 0;
+---
+
+<PublicLayout
+  title="Hustler Community Opportunities — Find your next opportunity"
+  description="Discover startup opportunities sourced from founders, recruiters and teams. Curated roles, verified sources, direct application routes. Find your next opportunity and start building."
+  structuredData={structuredData}
+>
+  {!available && (
+    <div class="container" style="padding-top:1.25rem">
+      <div class="alert alert--info" role="status">
+        <strong>Preview environment.</strong> The opportunity database is not connected here yet, so live listings are
+        unavailable. {error === 'The database is not configured yet.' ? 'Add Supabase credentials to load them.' : ''}
+      </div>
+    </div>
+  )}
+
+  <section class="hero">
+    <div class="container hero__grid">
+      <div>
+        <span class="eyebrow eyebrow--orange">Startup opportunities · Hustler Community</span>
+        <h1>
+          <span class="hero__line">Find Your Next</span>
+          <span class="hero__line"><em>Opportunity.</em></span>
+          <span class="hero__line">Start Building.</span>
+        </h1>
+        <p class="hero__lede">
+          Opportunities sourced from founders, recruiters and startup teams — then reviewed before they go live. Find
+          roles close to the people building, check the original source, and apply directly.
+        </p>
+
+        <form class="hero__search search-bar" method="GET" action="/opportunities" role="search">
+          <span class="search-bar__icon"><Icon name="search" size={17} /></span>
+          <label class="sr-only" for="home-search">Search opportunities</label>
+          <input
+            id="home-search"
+            name="q"
+            type="search"
+            placeholder="Search roles, skills, companies, cities…"
+            autocomplete="off"
+          />
+          <button class="btn btn--primary" type="submit">
+            Explore <Icon name="arrow-right" size={14} />
+          </button>
+        </form>
+
+        <div class="hero__actions">
+          <a href="/opportunities" class="btn btn--primary btn--lg">
+            Explore Opportunities <Icon name="arrow-right" size={15} />
+          </a>
+          <a href="/submit" class="btn btn--outline btn--lg">
+            Submit an Opportunity <Icon name="arrow-up-right" size={14} />
+          </a>
+        </div>
+
+        <div class="hero__stats">
+          <div class="hero__stat">
+            <strong>{home.totalPublished.toLocaleString('en-US')}</strong>
+            <span>Published roles</span>
+          </div>
+          <div class="hero__stat">
+            <strong>{home.categories.filter((c) => c.opportunity_count > 0).length || '—'}</strong>
+            <span>Active categories</span>
+          </div>
+          <div class="hero__stat">
+            <strong>{activeCities || '—'}</strong>
+            <span>Cities hiring</span>
+          </div>
+          <div class="hero__stat">
+            <strong>{reviewed ? 'Reviewed' : 'Curated'}</strong>
+            <span>Before publishing</span>
+          </div>
+        </div>
+      </div>
+
+      <aside class="signal" aria-label="Latest opportunities">
+        <div class="signal__head">
+          <span>{signalItems.length ? 'Latest on the board' : 'The board'}</span>
+          {signalItems.length ? (
+            <span class="live-dot">Live</span>
+          ) : (
+            <span>Awaiting first listing</span>
+          )}
+        </div>
+
+        {signalItems.length ? (
+          <div class="signal__list">
+            {signalItems.map((o, index) => (
+              <a class="signal__item" href={`/opportunities/${o.slug}`}>
+                <div>
+                  <div class="signal__title">{o.title}</div>
+                  <div class="signal__meta">
+                    <span>{o.company?.name ?? 'Company not specified'}</span>
+                    <span>{[o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Location not specified'}</span>
+                    <span>{o.category?.name ?? 'Uncategorised'}</span>
+                  </div>
+                </div>
+                <span class="signal__index">{String(index + 1).padStart(2, '0')}</span>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div style="padding:1.4rem 1.1rem">
+            <p class="small muted" style="line-height:1.6">
+              No published opportunities yet. The board fills up from reviewed founder, recruiter and team posts — it
+              never uses placeholder jobs.
+            </p>
+            <a href="/submit" class="btn btn--outline btn--sm" style="margin-top:0.85rem">
+              Submit the first opportunity
+            </a>
+          </div>
+        )}
+
+        <div class="signal__foot">
+          <span>Sourced, reviewed, then published</span>
+          <a href="/opportunities" style="color:var(--text)">View all <Icon name="arrow-right" size={12} /></a>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section section--surface">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Where builders are needed</span>
+          <h2>Browse by function</h2>
+          <p>Startup roles grouped by the work, not by a generic industry list.</p>
+        </div>
+        <a class="section-link" href="/categories">All categories <Icon name="arrow-right" size={14} /></a>
+      </div>
+
+      {visibleCategories.length ? (
+        <div class="tile-grid">
+          {visibleCategories.map((c, index) => (
+            <a class:list={['cat-tile', c.opportunity_count === 0 && 'is-empty']} href={`/categories/${c.slug}`}>
+              <span class="cat-tile__num">{String(index + 1).padStart(2, '0')}</span>
+              <div>
+                <div class="cat-tile__name">{c.name}</div>
+                <div class="cat-tile__count">{pluralize(c.opportunity_count, 'open role')}</div>
+              </div>
+              <span class="cat-tile__arrow"><Icon name="arrow-up-right" size={15} /></span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="Categories are ready, roles are not yet published"
+          description="The taxonomy is seeded and waiting for the first reviewed opportunity. Browse categories to see what is coming."
+          icon="folder"
+        >
+          <a href="/categories" class="btn btn--outline btn--sm">Browse categories</a>
+        </EmptyState>
+      )}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow eyebrow--orange">Latest opportunities</span>
+          <h2>Newly published roles</h2>
+          <p>Fresh listings from the review queue. Every card links to the original source and a real application route.</p>
+        </div>
+        <a class="section-link" href="/opportunities?sort=newest">Explore all <Icon name="arrow-right" size={14} /></a>
+      </div>
+
+      {home.latest.length ? (
+        <div class="opp-grid">
+          {home.latest.map((o) => <OpportunityCard opportunity={o} />)}
+        </div>
+      ) : (
+        <EmptyState
+          title="No opportunities published yet"
+          description="When a founder, recruiter or team post is captured and reviewed, it appears here — with the source and application route intact."
+          icon="briefcase"
+        >
+          <div class="cluster" style="justify-content:center">
+            <a href="/submit" class="btn btn--primary btn--sm">Submit an opportunity</a>
+            <a href="/about" class="btn btn--ghost btn--sm">How curation works</a>
+          </div>
+        </EmptyState>
+      )}
+    </div>
+  </section>
+
+  {home.recentlyDiscovered.length > 0 && (
+    <section class="section section--tight">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Recently discovered</span>
+            <h2>Straight from the source</h2>
+            <p>Newly found roles, ordered by when our team discovered them — not by a made-up posting date.</p>
+          </div>
+          <span class="tiny muted mono">{home.recentlyDiscovered.length} shown</span>
+        </div>
+        <div class="opp-rows">
+          {home.recentlyDiscovered.map((o) => <OpportunityRow opportunity={o} />)}
+        </div>
+      </div>
+    </section>
+  )}
+
+  {(home.remote.length > 0 || home.internships.length > 0) && (
+    <section class="section section--surface">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Work the way you want</span>
+            <h2>Remote roles & startup internships</h2>
+            <p>Two fast paths into the directory, filtered straight from live listings.</p>
+          </div>
+        </div>
+        <div class="panel-grid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2rem">
+          {home.remote.length > 0 && (
+            <div class="panel">
+              <div class="panel__head">
+                <span class="panel__title"><Icon name="globe" size={14} /> Remote</span>
+                <a href="/opportunities?workMode=remote" class="tiny muted">View all</a>
+              </div>
+              <div class="panel__body panel__body--flush">
+                {home.remote.slice(0, 4).map((o) => (
+                  <a class="signal__item" href={`/opportunities/${o.slug}`} style="border-bottom:1px solid var(--line)">
+                    <div>
+                      <div class="signal__title">{o.title}</div>
+                      <div class="signal__meta">
+                        <span>{o.company?.name ?? 'Company not specified'}</span>
+                        <span>{o.employment_type === 'internship' ? 'Internship' : 'Remote'}</span>
+                      </div>
+                    </div>
+                    <Icon name="arrow-right" size={14} />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {home.internships.length > 0 && (
+            <div class="panel">
+              <div class="panel__head">
+                <span class="panel__title"><Icon name="sparkles" size={14} /> Internships</span>
+                <a href="/opportunities?employmentType=internship" class="tiny muted">View all</a>
+              </div>
+              <div class="panel__body panel__body--flush">
+                {home.internships.slice(0, 4).map((o) => (
+                  <a class="signal__item" href={`/opportunities/${o.slug}`} style="border-bottom:1px solid var(--line)">
+                    <div>
+                      <div class="signal__title">{o.title}</div>
+                      <div class="signal__meta">
+                        <span>{o.company?.name ?? 'Company not specified'}</span>
+                        <span>{[o.city, o.country].filter(Boolean).join(', ') || 'Location not specified'}</span>
+                      </div>
+                    </div>
+                    <Icon name="arrow-right" size={14} />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Hiring across</span>
+          <h2>Explore by location</h2>
+          <p>Cities with live roles, based on the locations stated in the original posts.</p>
+        </div>
+        <a class="section-link" href="/locations">All locations <Icon name="arrow-right" size={14} /></a>
+      </div>
+
+      {home.locations.length ? (
+        <div class="location-links">
+          {home.locations.slice(0, 14).map((location) => (
+            <a
+              class="location-link"
+              href={`/locations/${`${location.city}${location.country ? `-${location.country}` : ''}`
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '')}`}
+            >
+              <Icon name="map-pin" size={13} />
+              {location.city}
+              <span>{location.count.toLocaleString('en-US')}</span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No locations to show yet"
+          description="Locations appear as soon as published roles include a city. We never infer a city from a company's headquarters."
+          icon="map-pin"
+        />
+      )}
+    </div>
+  </section>
+
+  <section class="section section--paper">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow eyebrow--orange">How it works</span>
+          <h2>Curated, not scraped into a pile</h2>
+          <p>A small, deliberate pipeline keeps the directory useful for candidates and fair to the teams hiring.</p>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <span class="step__num">01 / DISCOVER</span>
+          <h3>Sourced from builders</h3>
+          <p>
+            Founders, recruiters and startup teams share roles through the community, public submissions and direct
+            owner capture. We link to the original post rather than copying it silently.
+          </p>
+        </div>
+        <div class="step">
+          <span class="step__num">02 / REVIEW</span>
+          <h3>Checked before publishing</h3>
+          <p>
+            An editor confirms the role, company, location and a usable application route. Missing details stay
+            “Not specified” — we do not fill gaps with guesses.
+          </p>
+        </div>
+        <div class="step">
+          <span class="step__num">03 / APPLY</span>
+          <h3>Your application, direct</h3>
+          <p>
+            Apply on the company's site, by email, or through the original LinkedIn post. No account required, and we
+            never claim an outbound click is a completed application.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="brand-panel">
+        <div class="brand-panel__grid">
+          <div>
+            <span class="eyebrow eyebrow--plain">Built with Hustler Community</span>
+            <h2>Opportunity is a community sport.</h2>
+            <p>
+              Hustler Community brings together people who build. This directory is a focused layer on top: startup
+              roles, real sources, reviewed details, and a direct line to the team hiring.
+            </p>
+            <div class="brand-links">
+              <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">
+                Join the community <Icon name="arrow-up-right" size={13} />
+              </a>
+              <a href="/about">About this directory <Icon name="arrow-right" size={13} /></a>
+              <a href="/submit">Submit an opportunity <Icon name="arrow-right" size={13} /></a>
+            </div>
+          </div>
+          <div class="brand-panel__mark">
+            <img src="/brand/wordmark.png" alt="Hustler Community wordmark" class="wordmark" loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</PublicLayout>

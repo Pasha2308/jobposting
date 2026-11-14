@@ -1,0 +1,185 @@
+---
+import PublicLayout from '../layouts/PublicLayout.astro';
+import Icon from '../components/Icon.astro';
+import { loadSettings } from '../lib/page-data';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const submitted = url.searchParams.get('submitted') === '1';
+const error = url.searchParams.get('error');
+const settings = await loadSettings(env);
+const disabled = settings.available && !settings.data.public_submissions_enabled;
+const turnstileSiteKey = env.turnstileSiteKey;
+---
+
+<PublicLayout
+  title="Submit an opportunity — Hustler Community"
+  description="Know a startup role that should be on the board? Submit the original post. Every public suggestion is reviewed by a human before publishing."
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">Submit</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">For founders, recruiters & teams</span>
+          <h1>Submit an opportunity</h1>
+          <p>
+            Share the original post and a little context. A public suggestion goes straight to the review queue — it
+            never publishes automatically. No account required.
+          </p>
+        </div>
+        <div class="page-head__aside">
+          <strong>Reviewed</strong>
+          by a human
+          <div>before publishing</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--tight">
+    <div class="container form-page">
+      <div>
+        {submitted && (
+          <div class="alert alert--success" role="status">
+            <strong>Thanks — your suggestion is in the review queue.</strong>
+            We will check the original source, confirm the role details and verify an application route before it can be
+            published. You do not need to do anything else.
+          </div>
+        )}
+        {error && (
+          <div class="alert alert--error" role="alert">
+            <strong>We could not accept that suggestion.</strong> {error}
+          </div>
+        )}
+
+        {disabled ? (
+          <div class="form-card">
+            <div class="alert alert--warning" style="margin-bottom:0">
+              <strong>Public suggestions are temporarily closed.</strong>
+              The review queue is paused while the team catches up. Please check back later, or share the role through
+              the community.
+            </div>
+            <div class="cluster" style="margin-top:1rem">
+              <a class="btn btn--outline btn--sm" href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">
+                Hustler Community <Icon name="arrow-up-right" size={13} />
+              </a>
+              <a class="btn btn--ghost btn--sm" href="/opportunities">Browse opportunities</a>
+            </div>
+          </div>
+        ) : (
+          <form class="form-card" method="POST" action="/api/public/submit" novalidate>
+            <div class="form-grid">
+              <div class="field col-span-2">
+                <label for="source_url">Original post URL <span aria-hidden="true">*</span></label>
+                <input
+                  class="input"
+                  id="source_url"
+                  name="source_url"
+                  type="url"
+                  required
+                  maxlength="1000"
+                  placeholder="https://www.linkedin.com/posts/… or the company's job page"
+                  inputmode="url"
+                />
+                <p class="field__hint">Use the public post or job page where the role was announced. Do not use a private or login-only link.</p>
+              </div>
+
+              <div class="field">
+                <label for="role_title">Role title</label>
+                <input class="input" id="role_title" name="role_title" type="text" maxlength="160" placeholder="e.g. Founder's Office Associate" />
+                <p class="field__hint">Optional — helps the reviewer find the right role.</p>
+              </div>
+
+              <div class="field">
+                <label for="company">Company</label>
+                <input class="input" id="company" name="company" type="text" maxlength="160" placeholder="Company or team name" />
+              </div>
+
+              <div class="field col-span-2">
+                <label for="details">What should we know? <span aria-hidden="true">*</span></label>
+                <textarea
+                  class="textarea"
+                  id="details"
+                  name="details"
+                  required
+                  minlength="30"
+                  maxlength="4000"
+                  rows={6}
+                  placeholder="Summarise the role in your own words. Include the location, work mode, compensation and how to apply if the post states them. Do not guess missing details."
+                ></textarea>
+                <p class="field__hint">Minimum 30 characters. We will read the original source — this note just gives context.</p>
+              </div>
+
+              <div class="hp" aria-hidden="true">
+                <label for="company_website">Company website</label>
+                <input id="company_website" name="honeypot" type="text" tabindex="-1" autocomplete="off" />
+              </div>
+
+              {turnstileSiteKey && (
+                <div class="field col-span-2">
+                  <div class="cf-turnstile" data-sitekey={turnstileSiteKey} data-callback="onTurnstileSuccess"></div>
+                  <input type="hidden" name="turnstile_token" value="" />
+                  <p class="field__hint">Bot protection by Cloudflare Turnstile. It does not track you across sites.</p>
+                </div>
+              )}
+
+              <div class="col-span-2 cluster" style="justify-content:space-between;align-items:flex-start">
+                <p class="tiny muted" style="max-width:42ch;line-height:1.6">
+                  By submitting, you confirm the role is real and that you may share the source. Public suggestions are
+                  reviewed and may be edited or rejected. See our <a href="/terms" style="text-decoration:underline">terms</a> and
+                  <a href="/privacy" style="text-decoration:underline">privacy policy</a>.
+                </p>
+                <button class="btn btn--primary" type="submit">
+                  Send for review <Icon name="arrow-right" size={14} />
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <aside class="form-aside">
+        <h2>What happens next</h2>
+        <ol>
+          <li>Your suggestion enters the private review queue.</li>
+          <li>An editor opens the original source and checks the role, company, location, dates and compensation.</li>
+          <li>The editor verifies a usable application route — a job URL, recruitment email, careers page or explicit instructions in the original post.</li>
+          <li>If it passes, the role is published with its source attached. If not, it stays unpublished. We do not invent missing details.</li>
+        </ol>
+
+        <hr class="hr" />
+
+        <h2>Good submissions include</h2>
+        <ul class="small muted" style="line-height:1.7;padding-left:1rem">
+          <li>A public, working source link.</li>
+          <li>The exact application route (not just “DM me”).</li>
+          <li>Location or work mode, as stated.</li>
+          <li>Salary or stipend, if the post states it.</li>
+          <li>The original posting date, if visible.</li>
+        </ul>
+
+        <hr class="hr" />
+
+        <p class="tiny muted">
+          Hiring urgently or want to share a role with the community directly?
+          <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">Join the community <Icon name="arrow-up-right" size={11} /></a>
+        </p>
+      </aside>
+    </div>
+  </section>
+</PublicLayout>
+
+{turnstileSiteKey && (
+  <>
+    <script is:inline>
+      window.onTurnstileSuccess = function (token) {
+        const input = document.querySelector('input[name="turnstile_token"]');
+        if (input) input.value = token;
+      };
+    </script>
+    <script is:inline async defer src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
+  </>
+)}

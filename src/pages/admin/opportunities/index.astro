@@ -1,0 +1,267 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import Icon from '../../../components/Icon.astro';
+import { loadAdminCategories, loadAdminOpportunities } from '../../../lib/admin-data';
+import { OPPORTUNITY_STATUSES } from '../../../lib/domain/types';
+import type { OpportunityStatus } from '../../../lib/domain/types';
+import { STATUS_LABELS, formatDate, relativeTime } from '../../../lib/domain/format';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const statusParam = (url.searchParams.get('status') ?? '') as OpportunityStatus | '';
+const q = url.searchParams.get('q') ?? '';
+const category = url.searchParams.get('category') ?? '';
+const sortParam = url.searchParams.get('sort') ?? 'newest';
+const sort = (['newest', 'oldest', 'updated', 'title'].includes(sortParam) ? sortParam : 'newest') as
+  | 'newest'
+  | 'oldest'
+  | 'updated'
+  | 'title';
+const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+const pageSize = 20;
+
+const [result, categories] = await Promise.all([
+  loadAdminOpportunities(env, { q, status: statusParam, category, sort, page, pageSize }),
+  loadAdminCategories(env),
+]);
+
+const totalPages = Math.max(1, result.data.totalPages);
+const queryFor = (patch: Record<string, string | number | undefined>): string => {
+  const params = new URLSearchParams();
+  const base: Record<string, string> = {
+    ...(q ? { q } : {}),
+    ...(statusParam ? { status: statusParam } : {}),
+    ...(category ? { category } : {}),
+    sort,
+  };
+  for (const [key, value] of Object.entries({ ...base, ...patch })) {
+    if (value !== undefined && value !== '' && !(key === 'sort' && value === 'newest')) params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `/admin/opportunities?${qs}` : '/admin/opportunities';
+};
+
+const tabs: { value: OpportunityStatus | ''; label: string }[] = [
+  { value: '', label: 'All' },
+  ...OPPORTUNITY_STATUSES.map((value) => ({ value, label: STATUS_LABELS[value] })),
+];
+---
+
+<AdminLayout
+  title="Opportunities"
+  description="Every role in the system, including drafts and preserved closed listings. Edit fields, verify the source, then publish through the validated gate."
+  active="opportunities"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--primary btn--sm" href="/admin/opportunities/new"><Icon name="plus" size={14} /> New opportunity</a>
+    <a class="btn btn--outline btn--sm" href="/admin/capture"><Icon name="zap" size={14} /> Capture instead</a>
+  </div>
+
+  <nav class="tabs" aria-label="Filter by status">
+    {tabs.map((tab) => (
+      <a
+        href={queryFor({ status: tab.value, page: 1 })}
+        class:list={[statusParam === tab.value && 'is-active']}
+        aria-current={statusParam === tab.value ? 'page' : undefined}
+      >
+        {tab.label}
+      </a>
+    ))}
+  </nav>
+
+  <form class="admin-filters" method="GET" action="/admin/opportunities">
+    <div class="field field--grow">
+      <label for="opp-q">Search</label>
+      <input class="input" id="opp-q" name="q" type="search" value={q} placeholder="Title, company, city, skill…" />
+    </div>
+    <div class="field">
+      <label for="opp-status">Status</label>
+      <select class="select" id="opp-status" name="status">
+        <option value="">All statuses</option>
+        {OPPORTUNITY_STATUSES.map((value) => (
+          <option value={value} selected={statusParam === value}>{STATUS_LABELS[value]}</option>
+        ))}
+      </select>
+    </div>
+    <div class="field">
+      <label for="opp-category">Category</label>
+      <select class="select" id="opp-category" name="category">
+        <option value="">All categories</option>
+        {categories.data.map((item) => (
+          <option value={item.slug} selected={category === item.slug}>{item.name}</option>
+        ))}
+      </select>
+    </div>
+    <div class="field">
+      <label for="opp-sort">Sort</label>
+      <select class="select" id="opp-sort" name="sort">
+        <option value="newest" selected={sort === 'newest'}>Newest</option>
+        <option value="oldest" selected={sort === 'oldest'}>Oldest</option>
+        <option value="updated" selected={sort === 'updated'}>Recently updated</option>
+        <option value="title" selected={sort === 'title'}>Title A–Z</option>
+      </select>
+    </div>
+    <button class="btn btn--secondary btn--sm" type="submit">Apply</button>
+    {(q || statusParam || category) && <a class="btn btn--ghost btn--sm" href="/admin/opportunities">Clear</a>}
+  </form>
+
+  <div class="panel">
+    <div class="panel__head">
+      <span class="panel__title">
+        {result.data.total.toLocaleString('en-US')} {result.data.total === 1 ? 'opportunity' : 'opportunities'}
+      </span>
+      <span class="mono tiny muted">Page {result.data.page} / {totalPages}</span>
+    </div>
+
+    <div class="panel__body" style="padding:0.75rem 1rem 0">
+      <div class="cluster" data-bulk-bar hidden>
+        <span class="tiny muted"><strong data-bulk-count>0</strong> selected</span>
+        <select class="select" data-bulk-action style="max-width:210px;min-height:34px;font-size:var(--fs-xs)">
+          <option value="">Bulk action…</option>
+          <option value="publish">Publish</option>
+          <option value="close">Close</option>
+          <option value="archive">Archive</option>
+          <option value="reject">Reject</option>
+          <option value="restore">Restore to draft</option>
+        </select>
+        <button class="btn btn--outline btn--sm" type="button" data-bulk-apply>Apply to selected</button>
+        <span class="tiny" data-bulk-status role="status" aria-live="polite"></span>
+      </div>
+    </div>
+
+    {result.data.items.length ? (
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:32px"><input type="checkbox" data-select-all aria-label="Select all opportunities" /></th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Category</th>
+              <th>Location</th>
+              <th>Timestamps</th>
+              <th>Verification</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.data.items.map((o) => (
+              <tr>
+                <td><input type="checkbox" value={o.id} data-bulk-item aria-label={`Select ${o.title}`} /></td>
+                <td>
+                  <div class="cell-title"><a href={`/admin/opportunities/${o.id}`}>{o.title}</a></div>
+                  <div class="cell-sub">{o.company?.name ?? 'Company not set'} · {o.employment_type.replace(/_/g, ' ')}</div>
+                </td>
+                <td><span class:list={['badge', `badge--${o.status}`]}>{STATUS_LABELS[o.status]}</span></td>
+                <td class="tiny">{o.category?.name ?? <span class="muted">Uncategorised</span>}</td>
+                <td class="tiny">{[o.city, o.country].filter(Boolean).join(', ') || o.location_text || <span class="muted">Not specified</span>}</td>
+                <td class="tiny muted">
+                  <div>Disc. {formatDate(o.discovered_at)}</div>
+                  <div>Pub. {o.published_at ? formatDate(o.published_at) : '—'}</div>
+                  <div>Closed {o.closed_at ? formatDate(o.closed_at) : '—'}</div>
+                </td>
+                <td>
+                  <span class:list={['badge', `badge--${o.verification_status}`]}>{o.verification_status.replace(/_/g, ' ')}</span>
+                  <div class="cell-sub">{o.last_verified_at ? relativeTime(o.last_verified_at) : 'Never checked'}</div>
+                </td>
+                <td>
+                  <div class="actions">
+                    <a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Edit</a>
+                    {o.status === 'published' && (
+                      <a class="btn btn--ghost btn--sm" href={`/opportunities/${o.slug}`} target="_blank" rel="noopener" aria-label="View public page">
+                        <Icon name="eye" size={13} />
+                      </a>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div class="table-empty">
+        {q || statusParam || category
+          ? 'No opportunities match these filters. Clear them or try a broader search.'
+          : 'No opportunities yet. Capture a source post or create a draft manually.'}
+      </div>
+    )}
+
+    {totalPages > 1 && (
+      <div class="cluster" style="justify-content:space-between;padding:0.9rem 1rem">
+        <span class="tiny muted">Showing {result.data.items.length} of {result.data.total}</span>
+        <div class="cluster">
+          {page > 1 && (
+            <a class="btn btn--ghost btn--sm" href={queryFor({ page: page - 1 })}><Icon name="chevron-left" size={13} /> Previous</a>
+          )}
+          {page < totalPages && (
+            <a class="btn btn--ghost btn--sm" href={queryFor({ page: page + 1 })}>Next <Icon name="chevron-right" size={13} /></a>
+          )}
+        </div>
+      </div>
+    )}
+  </div>
+</AdminLayout>
+
+<script>
+  const items = Array.from(document.querySelectorAll<HTMLInputElement>('[data-bulk-item]'));
+  const selectAll = document.querySelector<HTMLInputElement>('[data-select-all]');
+  const bar = document.querySelector<HTMLElement>('[data-bulk-bar]');
+  const count = document.querySelector<HTMLElement>('[data-bulk-count]');
+  const actionSelect = document.querySelector<HTMLSelectElement>('[data-bulk-action]');
+  const apply = document.querySelector<HTMLButtonElement>('[data-bulk-apply]');
+  const bulkStatus = document.querySelector<HTMLElement>('[data-bulk-status]');
+
+  function selectedIds(): string[] {
+    return items.filter((item) => item.checked).map((item) => item.value);
+  }
+  function sync() {
+    const ids = selectedIds();
+    if (bar) bar.hidden = ids.length === 0;
+    if (count) count.textContent = String(ids.length);
+    if (selectAll) selectAll.checked = ids.length > 0 && ids.length === items.length;
+  }
+
+  selectAll?.addEventListener('change', () => {
+    for (const item of items) item.checked = selectAll.checked;
+    sync();
+  });
+  for (const item of items) item.addEventListener('change', sync);
+  sync();
+
+  apply?.addEventListener('click', async () => {
+    const ids = selectedIds();
+    const action = actionSelect?.value ?? '';
+    if (!ids.length || !action) {
+      if (bulkStatus) bulkStatus.textContent = 'Select at least one opportunity and an action.';
+      return;
+    }
+    const destructive = ['archive', 'reject', 'publish'].includes(action);
+    if (destructive && !window.confirm(`Apply “${action}” to ${ids.length} opportunit${ids.length === 1 ? 'y' : 'ies'}? Status changes are logged.`)) return;
+
+    apply.setAttribute('disabled', 'true');
+    if (bulkStatus) bulkStatus.textContent = 'Applying…';
+    try {
+      const response = await fetch('/api/admin/opportunities/bulk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, action }),
+      });
+      const result = (await response.json().catch(() => null)) as
+        | { ok?: boolean; updated?: number; failed?: { id: string; error: string }[]; error?: string }
+        | null;
+      if (!response.ok || !result) {
+        if (bulkStatus) bulkStatus.textContent = (result as { error?: string } | null)?.error ?? 'Bulk action failed.';
+        apply.removeAttribute('disabled');
+        return;
+      }
+      if (bulkStatus) {
+        bulkStatus.textContent = `${result.updated ?? 0} updated${result.failed?.length ? `, ${result.failed.length} skipped` : ''}. Reloading…`;
+      }
+      window.location.reload();
+    } catch {
+      if (bulkStatus) bulkStatus.textContent = 'Network error. Nothing was changed.';
+      apply.removeAttribute('disabled');
+    }
+  });
+</script>

@@ -1,0 +1,124 @@
+---
+import PublicLayout from '../layouts/PublicLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'AboutPage',
+    name: 'About Hustler Community Opportunities',
+    url: `${Astro.locals.env.siteUrl}/about`,
+  },
+];
+---
+
+<PublicLayout
+  title="About the directory — Hustler Community"
+  description="Hustler Community Opportunities is a curated startup opportunity directory. Learn how roles are sourced, reviewed and published, and what we deliberately do not do."
+  structuredData={structuredData}
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">About</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">About</span>
+          <h1>Discover opportunities.<br />Connect with builders.<br />Start building.</h1>
+          <p>
+            Hustler Community Opportunities is a focused directory of startup roles, built on top of the Hustler
+            Community network. It exists to make the first step into a startup clearer — and to keep the source of every
+            role visible.
+          </p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container--narrow prose">
+      <h2>Why this exists</h2>
+      <p>
+        Startup opportunities travel through founder posts, recruiter messages, group chats and community threads. They
+        are real, but they are scattered. Generic job boards flatten them into the same list as everything else, often
+        without a source, a date, or a working application route.
+      </p>
+      <p>
+        This directory keeps the useful parts intact: the role, the team, the location, the application path, and the
+        original post. It is curated for people who want to work close to founders — in the founder's office, in growth,
+        in operations, or in an internship where the scope is still being written.
+      </p>
+
+      <h2>How a role gets listed</h2>
+      <ol>
+        <li>
+          <strong>Capture.</strong> A founder, recruiter or team member shares a role through the community, a public
+          suggestion, or directly with the Hustler Community team. The original post is preserved as the source.
+        </li>
+        <li>
+          <strong>Review.</strong> An editor checks the role title, company, location, compensation, dates and a usable
+          application route. Missing details stay “Not specified”. We do not infer a city from a company's headquarters,
+          invent a salary, or fill in a contact email.
+        </li>
+        <li>
+          <strong>Publish.</strong> The listing goes live only when it has a verified application route — an external
+          application URL, a recruitment email, a verified careers page, or explicit instructions in the original
+          LinkedIn post.
+        </li>
+        <li>
+          <strong>Maintain.</strong> Listings carry separate timestamps for the original post, discovery, publication,
+          last verification and closure. When a role closes, it is preserved with applications disabled rather than
+          quietly disappearing.
+        </li>
+      </ol>
+
+      <h2>What we deliberately do not do</h2>
+      <ul>
+        <li>We do not invent logos, salaries, emails, URLs, deadlines or company details.</li>
+        <li>We do not label a listing “posted today” because we discovered it today.</li>
+        <li>We do not call an outbound click an application. We cannot see what happens after you leave this site.</li>
+        <li>We do not scrape LinkedIn or automate engagement on anyone's account.</li>
+        <li>We do not sell candidate data. There are no candidate accounts and no CV uploads.</li>
+        <li>We do not auto-merge possible duplicates. They are flagged for a human to review.</li>
+      </ul>
+
+      <h2>For candidates</h2>
+      <p>
+        No registration is required. Open a role, read the source, and apply through the route the team provided. If a
+        listing looks closed, inaccurate or suspicious, use the report link on the page. Reports are reviewed by an
+        editor, and a report can close a listing.
+      </p>
+
+      <h2>For founders and teams</h2>
+      <p>
+        If you are hiring, submit the original post. A public suggestion always goes to a review queue — it never
+        publishes automatically. Including the role title, location, compensation and a direct application route makes
+        review faster and gives candidates a better experience.
+      </p>
+
+      <h2>Built with Hustler Community</h2>
+      <p>
+        The directory borrows its visual language from Hustler Community: deep teal, signal orange, near-black, and Space
+        Grotesk. The community is the point — this site is a tool for the people in it.
+      </p>
+      <div class="cluster">
+        <a class="btn btn--primary btn--sm" href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">
+          Visit Hustler Community <Icon name="arrow-up-right" size={13} />
+        </a>
+        <a class="btn btn--outline btn--sm" href="https://www.linkedin.com/company/hustlercommunity" target="_blank" rel="noopener noreferrer nofollow">
+          <Icon name="linkedin" size={13} /> LinkedIn
+        </a>
+        <a class="btn btn--ghost btn--sm" href="/submit">Submit an opportunity <Icon name="arrow-right" size={13} /></a>
+      </div>
+
+      <h2>Editorial contact</h2>
+      <p>
+        For corrections, removals or partnership questions, use the <a href="/report">report form</a> or reach the
+        community through <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">hustlerscommunity.in</a>.
+        We do not publish a generic contact email because we would rather route requests through a channel that is
+        actually monitored.
+      </p>
+    </div>
+  </section>
+</PublicLayout>

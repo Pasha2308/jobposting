@@ -1,0 +1,240 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadAdminAnalytics, loadAdminStats } from '../../lib/admin-data';
+import { formatDate } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const url = Astro.url;
+const requested = Number(url.searchParams.get('days') ?? 30);
+const days = [7, 30, 90].includes(requested) ? requested : 30;
+
+const [analytics, stats] = await Promise.all([loadAdminAnalytics(env, days), loadAdminStats(env)]);
+const a = analytics.data;
+
+const viewMax = Math.max(1, ...a.dailyEvents.map((point) => point.views));
+const clickMax = Math.max(1, ...a.dailyEvents.map((point) => point.applyClicks));
+const topOpportunityMax = Math.max(1, ...a.topOpportunities.map((item) => item.count));
+const topCategoryMax = Math.max(1, ...a.topCategories.map((item) => item.count));
+const searchMax = Math.max(1, ...a.topSearches.map((item) => item.count));
+const outbound = a.applyClicks + a.emailClicks + a.sourceClicks + a.careersClicks;
+
+function shortDate(value: string): string {
+  return formatDate(value, { withYear: false });
+}
+---
+
+<AdminLayout
+  title="Analytics"
+  description="Privacy-friendly counts from the public site. Views and outbound clicks are anonymous; we never claim to know that an application was submitted."
+  active="analytics"
+>
+  <div slot="actions" class="cluster">
+    {[7, 30, 90].map((value) => (
+      <a class:list={['btn', 'btn--sm', days === value ? 'btn--primary' : 'btn--outline']} href={`/admin/analytics?days=${value}`}>
+        {value} days
+      </a>
+    ))}
+  </div>
+
+  {!analytics.available && (
+    <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
+      <strong>Analytics are unavailable.</strong> {analytics.error} Events are stored in Supabase; apply the migrations
+      and configure the service role key to collect them.
+    </div>
+  )}
+
+  <div class="stat-grid">
+    <div class="stat-card stat-card--accent">
+      <div class="stat-card__label">Listing views</div>
+      <div class="stat-card__value">{a.views.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Last {days} days · anonymous</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Outbound clicks</div>
+      <div class="stat-card__value">{outbound.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Not applications — clicks only</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Apply link clicks</div>
+      <div class="stat-card__value">{a.applyClicks.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">External URL / careers route</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Email clicks</div>
+      <div class="stat-card__value">{a.emailClicks.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Mailto opened</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Source clicks</div>
+      <div class="stat-card__value">{a.sourceClicks.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Original post opened</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Careers page clicks</div>
+      <div class="stat-card__value">{a.careersClicks.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Company careers route</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Share actions</div>
+      <div class="stat-card__value">{a.shares.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Copy, native, LinkedIn, WhatsApp</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Searches</div>
+      <div class="stat-card__value">{a.searches.toLocaleString('en-US')}</div>
+      <div class="stat-card__hint">Directory searches</div>
+    </div>
+  </div>
+
+  <div class="admin-columns" style="margin-top:1rem">
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="chart" size={14} /> Views and apply clicks</span>
+        <span class="tiny muted">Daily · last {days} days</span>
+      </div>
+      <div class="panel__body">
+        {a.dailyEvents.length ? (
+          <>
+            <div class="chart" role="img" aria-label={`Daily views for the last ${days} days`}>
+              {a.dailyEvents.map((point) => (
+                <div
+                  class="chart__bar"
+                  data-empty={point.views === 0 ? 'true' : 'false'}
+                  data-label={`${shortDate(point.date)} · ${point.views} view${point.views === 1 ? '' : 's'} · ${point.applyClicks} click${point.applyClicks === 1 ? '' : 's'}`}
+                  style={`height:${Math.max(2, Math.round((point.views / viewMax) * 100))}%`}
+                ></div>
+              ))}
+            </div>
+            <div class="chart-axis">
+              <span>{a.dailyEvents[0] ? shortDate(a.dailyEvents[0].date) : ''}</span>
+              <span>{a.dailyEvents.length > 1 ? shortDate(a.dailyEvents[a.dailyEvents.length - 1].date) : ''}</span>
+            </div>
+            <div class="tiny muted" style="margin-top:0.75rem;line-height:1.6">
+              Tallest bar: {viewMax} views. Click bars show the same days, max {clickMax} apply clicks.
+            </div>
+          </>
+        ) : (
+          <div class="table-empty">No public events recorded in this period.</div>
+        )}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="briefcase" size={14} /> Most viewed listings</span>
+      </div>
+      <div class="panel__body">
+        {a.topOpportunities.length ? (
+          <div class="bar-list">
+            {a.topOpportunities.map((item) => (
+              <div class="bar-list__row">
+                <a class="bar-list__label" href={`/admin/opportunities/${item.id}`}>{item.title}</a>
+                <span class="bar-list__track">
+                  <span class="bar-list__fill" style={`width:${Math.max(3, Math.round((item.count / topOpportunityMax) * 100))}%`}></span>
+                </span>
+                <span class="bar-list__value">{item.count}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div class="table-empty">No listing views yet.</div>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-columns" style="margin-top:1rem">
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="folder" size={14} /> Category interest</span>
+      </div>
+      <div class="panel__body">
+        {a.topCategories.length ? (
+          <div class="bar-list">
+            {a.topCategories.map((item) => (
+              <div class="bar-list__row">
+                <a class="bar-list__label" href={`/categories/${item.slug}`} target="_blank" rel="noopener">{item.name}</a>
+                <span class="bar-list__track">
+                  <span class="bar-list__fill" style={`width:${Math.max(3, Math.round((item.count / topCategoryMax) * 100))}%`}></span>
+                </span>
+                <span class="bar-list__value">{item.count}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div class="table-empty">Category views will appear here once the directory gets traffic.</div>
+        )}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="search" size={14} /> Search terms</span>
+      </div>
+      <div class="panel__body">
+        {a.topSearches.length ? (
+          <div class="bar-list">
+            {a.topSearches.map((item) => (
+              <div class="bar-list__row">
+                <span class="bar-list__label">{item.query}</span>
+                <span class="bar-list__track">
+                  <span class="bar-list__fill" style={`width:${Math.max(3, Math.round((item.count / searchMax) * 100))}%`}></span>
+                </span>
+                <span class="bar-list__value">{item.count}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div class="table-empty">No searches recorded yet.</div>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-columns" style="margin-top:1rem">
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="calendar" size={14} /> Publishing trend</span>
+        <span class="tiny muted">{a.publicationTrend.reduce((sum, point) => sum + point.count, 0)} published</span>
+      </div>
+      <div class="panel__body">
+        {a.publicationTrend.length ? (
+          <div class="bar-list">
+            {a.publicationTrend.map((point) => (
+              <div class="bar-list__row">
+                <span class="bar-list__label">{shortDate(point.date)}</span>
+                <span class="bar-list__track">
+                  <span class="bar-list__fill" style={`width:${Math.max(3, Math.round((point.count / Math.max(1, ...a.publicationTrend.map((p) => p.count))) * 100))}%`}></span>
+                </span>
+                <span class="bar-list__value">{point.count}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div class="table-empty">No listings published in this period.</div>
+        )}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="shield" size={14} /> Board health</span>
+      </div>
+      <div class="panel__body">
+        <div class="meta-list">
+          <div class="meta-list__row"><span class="meta-list__key">Published</span><span class="meta-list__val">{stats.data.published}</span></div>
+          <div class="meta-list__row"><span class="meta-list__key">Pending review</span><span class="meta-list__val">{stats.data.pending_review}</span></div>
+          <div class="meta-list__row"><span class="meta-list__key">Needs verification</span><span class="meta-list__val">{stats.data.needs_verification}</span></div>
+          <div class="meta-list__row"><span class="meta-list__key">Expired</span><span class="meta-list__val">{stats.data.expired}</span></div>
+          <div class="meta-list__row"><span class="meta-list__key">Closed</span><span class="meta-list__val">{stats.data.closed}</span></div>
+          <div class="meta-list__row"><span class="meta-list__key">Open reports</span><span class="meta-list__val">{stats.data.open_reports}</span></div>
+        </div>
+        <p class="tiny muted" style="margin-top:0.85rem;line-height:1.6">
+          We track anonymous outbound clicks only. A click is not an application, and the workspace never claims an
+          application was submitted.
+        </p>
+      </div>
+    </div>
+  </div>
+</AdminLayout>

@@ -1,0 +1,95 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import Icon from '../../components/Icon.astro';
+import EmptyState from '../../components/EmptyState.astro';
+import { loadCategories } from '../../lib/page-data';
+import { pluralize } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const { data: categories, available } = await loadCategories(env);
+const totalRoles = categories.reduce((sum, c) => sum + c.opportunity_count, 0);
+const featured = categories.filter((c) => c.is_featured);
+const ordered = [...categories].sort((a, b) => {
+  if (a.opportunity_count === 0 && b.opportunity_count > 0) return 1;
+  if (b.opportunity_count === 0 && a.opportunity_count > 0) return -1;
+  return a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+});
+---
+
+<PublicLayout
+  title="Opportunity categories — Hustler Community"
+  description="Browse startup opportunity categories: Founder's Office, Chief of Staff, Growth, internships and more. Filter by the work you want to do."
+>
+  <header class="page-head">
+    <div class="container">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="/">Home</a><span class="sep">/</span><span aria-current="page">Categories</span>
+      </nav>
+      <div class="page-head__inner" style="margin-top:1.25rem">
+        <div>
+          <span class="eyebrow eyebrow--orange">Find your lane</span>
+          <h1>Opportunities by category</h1>
+          <p>
+            Startup work is rarely a single job title. Browse by the function you want to own — from founder's office
+            and growth to internships and operations.
+          </p>
+        </div>
+        <div class="page-head__aside">
+          <strong>{totalRoles.toLocaleString('en-US')}</strong>
+          open {totalRoles === 1 ? 'role' : 'roles'}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container">
+      {!available && (
+        <div class="alert alert--info" role="status">
+          <strong>Database not connected.</strong> The category taxonomy is seeded in the migration but cannot be loaded
+          here yet.
+        </div>
+      )}
+
+      {featured.length > 0 && (
+        <div style="margin-bottom:2.5rem">
+          <span class="eyebrow">Featured functions</span>
+          <div class="location-links" style="margin-top:1rem">
+            {featured.map((c) => (
+              <a class="location-link" href={`/categories/${c.slug}`}>
+                <Icon name="sparkles" size={13} /> {c.name} <span>{c.opportunity_count}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {ordered.length ? (
+        <div class="tile-grid">
+          {ordered.map((c, index) => (
+            <a class:list={['cat-tile', c.opportunity_count === 0 && 'is-empty']} href={`/categories/${c.slug}`}>
+              <span class="cat-tile__num">{String(index + 1).padStart(2, '0')}</span>
+              <div>
+                <div class="cat-tile__name">{c.name}</div>
+                <div class="cat-tile__count">{pluralize(c.opportunity_count, 'open role')}</div>
+              </div>
+              <span class="cat-tile__arrow"><Icon name="arrow-up-right" size={15} /></span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No categories loaded"
+          description="Apply the database migrations to seed the starter taxonomy (Founder's Office, Chief of Staff, Growth, internships and more)."
+          icon="folder"
+        />
+      )}
+
+      <div class="notice" style="margin-top:2.5rem">
+        <strong>Not sure where a role fits?</strong> Browse the full directory or search by skill. Categories are
+        assigned by an editor during review, so a role may be listed under the closest matching function.
+        <div style="margin-top:0.75rem"><a href="/opportunities" class="btn btn--outline btn--sm">Explore all opportunities</a></div>
+      </div>
+    </div>
+  </section>
+</PublicLayout>

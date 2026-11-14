@@ -1,0 +1,250 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import Icon from '../../../components/Icon.astro';
+import { loadCapture, loadOpportunityById } from '../../../lib/admin-data';
+import { formatDateTime, relativeTime } from '../../../lib/domain/format';
+
+const env = Astro.locals.env;
+const id = Astro.params.id ?? '';
+const capture = await loadCapture(env, id);
+
+if (capture.available && !capture.data) {
+  return Astro.rewrite('/404');
+}
+
+const c = capture.data;
+const opportunity = c?.opportunity_id ? await loadOpportunityById(env, c.opportunity_id) : null;
+const extraction =
+  c?.extraction && typeof c.extraction === 'object' ? (c.extraction as Record<string, unknown>) : null;
+
+function list(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+}
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+---
+
+<AdminLayout
+  title="Capture review"
+  description="Inspect the preserved source, confirm what the extractor returned and decide what happens next. The raw capture is never shown on the public site."
+  active="capture"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/capture"><Icon name="arrow-left" size={13} /> All captures</a>
+    {opportunity?.data && (
+      <a class="btn btn--primary btn--sm" href={`/admin/opportunities/${opportunity.data.id}`}>
+        <Icon name="edit" size={13} /> Open opportunity
+      </a>
+    )}
+  </div>
+
+  {!capture.available && (
+    <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
+      <strong>Capture unavailable.</strong> {capture.error}
+    </div>
+  )}
+
+  {c && (
+    <>
+      {c.error_message && (
+        <div class="alert alert--error" role="alert" style="margin-bottom:1.5rem">
+          <strong>Last processing error.</strong> {c.error_message}
+        </div>
+      )}
+
+      <div class="admin-columns">
+        <div class="panel">
+          <div class="panel__head">
+            <span class="panel__title"><Icon name="inbox" size={14} /> Source capture</span>
+            <span class:list={['badge', `badge--${c.status}`]}>{c.status.replace(/_/g, ' ')}</span>
+          </div>
+          <div class="panel__body">
+            <div class="meta-list">
+              <div class="meta-list__row"><span class="meta-list__key">Source type</span><span class="meta-list__val">{c.source_type.replace(/_/g, ' ')}</span></div>
+              <div class="meta-list__row">
+                <span class="meta-list__key">Source URL</span>
+                <span class="meta-list__val">
+                  {c.source_url ? (
+                    <a href={c.source_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+                      {c.source_url} <Icon name="arrow-up-right" size={10} />
+                    </a>
+                  ) : 'Not specified'}
+                </span>
+              </div>
+              <div class="meta-list__row"><span class="meta-list__key">Company hint</span><span class="meta-list__val">{c.submitted_company ?? 'Not specified'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Submitted by</span><span class="meta-list__val">{c.created_by ?? 'Unknown'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Telegram user</span><span class="meta-list__val">{c.telegram_user_id ?? 'Not via Telegram'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Attempts</span><span class="meta-list__val">{c.attempt_count}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Received</span><span class="meta-list__val">{formatDateTime(c.created_at)}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Last updated</span><span class="meta-list__val">{relativeTime(c.updated_at)}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Duplicate key</span><span class="meta-list__val mono tiny">{c.normalized_source_key}</span></div>
+            </div>
+
+            {c.notes && (
+              <div class="notice" style="margin-top:1rem">
+                <strong>Internal notes</strong>
+                <p style="margin-top:0.35rem;white-space:pre-line">{c.notes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head">
+            <span class="panel__title"><Icon name="zap" size={14} /> Decisions</span>
+            <span class="tiny muted">Nothing publishes here</span>
+          </div>
+          <div class="panel__body">
+            {opportunity?.data ? (
+              <div class="notice" style="margin-bottom:1rem">
+                <strong>Extraction produced a draft.</strong> Review the fields, verify the application route and publish
+                from the opportunity editor.
+                <div style="margin-top:0.7rem">
+                  <a class="btn btn--primary btn--sm" href={`/admin/opportunities/${opportunity.data.id}`}>Review draft</a>
+                </div>
+              </div>
+            ) : (
+              <p class="small muted" style="line-height:1.6">
+                No opportunity exists for this capture yet. Retry extraction, or reject the capture if the source is not
+                a real vacancy. Rejecting never deletes the preserved text.
+              </p>
+            )}
+
+            <div class="stack-sm" style="margin-top:1rem">
+              <button class="btn btn--outline btn--block" type="button" data-capture-action="retry">
+                <Icon name="refresh" size={14} /> Retry extraction
+              </button>
+              {c.status !== 'approved' && (
+                <button class="btn btn--ghost btn--block" type="button" data-capture-action="approve">
+                  <Icon name="check" size={14} /> Mark capture approved
+                </button>
+              )}
+              <button class="btn btn--danger btn--block" type="button" data-capture-action="reject">
+                <Icon name="x" size={14} /> Reject capture
+              </button>
+            </div>
+
+            <div class="field" style="margin-top:1rem">
+              <label for="reject-note">Rejection note (optional)</label>
+              <textarea class="textarea" id="reject-note" rows={2} maxlength="400" placeholder="Why is this source not usable?"></textarea>
+            </div>
+
+            <div class="alert alert--info" data-capture-status role="status" aria-live="polite" hidden style="margin-top:0.75rem"></div>
+            <div class="alert alert--error" data-capture-error role="alert" hidden style="margin-top:0.75rem"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:1.5rem">
+        <div class="panel__head">
+          <span class="panel__title"><Icon name="lock" size={14} /> Preserved source text</span>
+          <span class="badge">Private</span>
+        </div>
+        <div class="panel__body">
+          <textarea class="textarea" rows={14} readonly aria-label="Preserved source text">{c.raw_text}</textarea>
+          <p class="tiny muted" style="margin-top:0.6rem">
+            A copy of the original post only. This text is stored privately, used for review and retained for the
+            configured period. It never appears on a public listing.
+          </p>
+        </div>
+      </div>
+
+      {extraction && (
+        <div class="panel" style="margin-top:1.5rem">
+          <div class="panel__head">
+            <span class="panel__title"><Icon name="sparkles" size={14} /> Extracted fields</span>
+            <span class="badge badge--pending_review">Needs human review</span>
+          </div>
+          <div class="panel__body">
+            <div class="meta-list">
+              <div class="meta-list__row"><span class="meta-list__key">Title</span><span class="meta-list__val">{text(extraction.title) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Company</span><span class="meta-list__val">{text(extraction.company_name) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Location</span><span class="meta-list__val">{text(extraction.location_text) ?? ([text(extraction.city), text(extraction.country)].filter(Boolean).join(', ') || 'Not extracted')}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Work mode</span><span class="meta-list__val">{text(extraction.work_mode) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Employment type</span><span class="meta-list__val">{text(extraction.employment_type) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Summary</span><span class="meta-list__val">{text(extraction.summary) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Application URL</span><span class="meta-list__val">{text(extraction.application_url) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Recruitment email</span><span class="meta-list__val">{text(extraction.recruitment_email) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Deadline</span><span class="meta-list__val">{text(extraction.deadline) ?? 'Not extracted'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Original post date</span><span class="meta-list__val">{text(extraction.original_posted_at) ?? 'Not extracted'}</span></div>
+            </div>
+
+            {list(extraction.skills).length > 0 && (
+              <div style="margin-top:1rem">
+                <p class="tiny muted" style="margin-bottom:0.5rem">Skills stated</p>
+                <div class="skill-tags">{list(extraction.skills).map((skill) => <span class="chip">{skill}</span>)}</div>
+              </div>
+            )}
+
+            <div class="notice" style="margin-top:1rem">
+              <strong>AI output is a draft.</strong> Missing values are stored as null and shown as “Not specified”. The
+              extractor must never invent a salary, email, URL or date — verify every field against the source above
+              before publishing.
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )}
+</AdminLayout>
+
+<script>
+  const statusBox = document.querySelector<HTMLElement>('[data-capture-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-capture-error]');
+  const buttons = document.querySelectorAll<HTMLButtonElement>('[data-capture-action]');
+  const captureId = window.location.pathname.split('/').filter(Boolean).pop() ?? '';
+
+  function status(text: string) {
+    if (!statusBox) return;
+    statusBox.hidden = false;
+    statusBox.textContent = text;
+  }
+  function error(text: string) {
+    if (!errorBox) return;
+    errorBox.hidden = false;
+    errorBox.textContent = text;
+  }
+
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.captureAction ?? '';
+      if (action === 'reject' && !window.confirm('Reject this capture? The source text is preserved, but it will leave the review queue.')) {
+        return;
+      }
+      if (action === 'retry' && !window.confirm('Retry extraction? This uses the configured AI provider again.')) {
+        return;
+      }
+      if (statusBox) statusBox.hidden = true;
+      if (errorBox) errorBox.hidden = true;
+      button.setAttribute('disabled', 'true');
+      status(action === 'retry' ? 'Retrying extraction…' : 'Updating capture…');
+
+      const note = document.querySelector<HTMLTextAreaElement>('#reject-note')?.value ?? '';
+      try {
+        const response = await fetch(`/api/admin/captures/${captureId}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action, note }),
+        });
+        const result = (await response.json().catch(() => null)) as
+          | { ok?: boolean; captureStatus?: string; opportunityId?: string | null; reviewUrl?: string; error?: string; warnings?: string[] }
+          | null;
+        if (!response.ok || !result) {
+          error((result as { error?: string } | null)?.error ?? 'The action failed.');
+          button.removeAttribute('disabled');
+          return;
+        }
+        if (action === 'retry' && result.opportunityId) {
+          window.location.href = result.reviewUrl ?? `/admin/opportunities/${result.opportunityId}`;
+          return;
+        }
+        status('Capture updated. Refreshing…');
+        window.location.reload();
+      } catch {
+        error('Network error. The capture was not changed.');
+        button.removeAttribute('disabled');
+      }
+    });
+  }
+</script>

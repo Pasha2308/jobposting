@@ -1,0 +1,355 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import Icon from '../../components/Icon.astro';
+import ApplyPanel from '../../components/ApplyPanel.astro';
+import ShareBar from '../../components/ShareBar.astro';
+import { isExpired, isPubliclyVisible, loadOpportunity } from '../../lib/page-data';
+import { resolveApplicationRoutes } from '../../lib/domain/validation';
+import {
+  APPLICATION_METHOD_LABELS,
+  EMPLOYMENT_TYPE_LABELS,
+  VERIFICATION_LABELS,
+  WORK_MODE_LABELS,
+  formatDate,
+  formatExperience,
+  formatSalary,
+  relativeTime,
+  truncate,
+} from '../../lib/domain/format';
+import { safeOutboundUrl } from '../../lib/domain/url';
+
+const env = Astro.locals.env;
+const slug = Astro.params.slug ?? '';
+const { data: opportunity } = await loadOpportunity(env, slug);
+
+if (!opportunity || !isPubliclyVisible(opportunity)) {
+  return Astro.rewrite('/404');
+}
+
+const o = opportunity;
+const closed = o.status !== 'published' || Boolean(o.closed_at) || isExpired(o);
+const routeResult = resolveApplicationRoutes(o);
+const routes = routeResult.routes;
+const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${o.slug}`;
+const companyWebsite = safeOutboundUrl(o.company?.website);
+const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
+const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
+const experience = formatExperience(o.experience_min_years, o.experience_max_years);
+const fresh = closed ? 'No longer active' : o.last_verified_at ? 'Source checked' : 'Awaiting verification';
+const description = o.summary
+  ? truncate(o.summary, 158)
+  : `${o.title} at ${o.company?.name ?? 'a startup'} — a curated startup opportunity with source and application details.`;
+
+const employmentMap: Record<string, string> = {
+  full_time: 'FULL_TIME',
+  part_time: 'PART_TIME',
+  contract: 'CONTRACTOR',
+  internship: 'INTERN',
+  temporary: 'TEMPORARY',
+  unspecified: 'OTHER',
+};
+
+const structuredData: Record<string, unknown>[] = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: env.siteUrl },
+      { '@type': 'ListItem', position: 2, name: 'Opportunities', item: `${env.siteUrl}/opportunities` },
+      { '@type': 'ListItem', position: 3, name: o.title, item: publicUrl },
+    ],
+  },
+];
+
+// JobPosting structured data is only emitted for live listings. Closed roles
+// keep the page but must stop advertising an open vacancy.
+if (!closed) {
+  const jsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'JobPosting',
+    title: o.title,
+    description: [o.summary, ...o.responsibilities, ...o.requirements].filter(Boolean).join('\n\n'),
+    datePosted: o.original_posted_at ?? o.published_at,
+    employmentType: employmentMap[o.employment_type] ?? 'OTHER',
+    hiringOrganization: {
+      '@type': 'Organization',
+      name: o.company?.name ?? 'Company not specified',
+      ...(companyWebsite ? { sameAs: companyWebsite } : {}),
+    },
+    jobLocation: {
+      '@type': 'Place',
+      address: {
+        '@type': 'PostalAddress',
+        ...(o.city ? { addressLocality: o.city } : {}),
+        ...(o.country ? { addressCountry: o.country_code ?? o.country } : {}),
+      },
+    },
+    directApply: false,
+  };
+  if (o.work_mode === 'remote') jsonLd.jobLocationType = 'TELECOMMUTE';
+  if (o.deadline) jsonLd.validThrough = `${o.deadline}T23:59:59Z`;
+  if ((o.salary_min != null || o.salary_max != null) && o.currency) {
+    jsonLd.baseSalary = {
+      '@type': 'MonetaryAmount',
+      currency: o.currency,
+      value: {
+        '@type': 'QuantitativeValue',
+        ...(o.salary_min != null ? { minValue: o.salary_min } : {}),
+        ...(o.salary_max != null ? { maxValue: o.salary_max } : {}),
+        unitText:
+          o.salary_period === 'hourly'
+            ? 'HOUR'
+            : o.salary_period === 'daily'
+              ? 'DAY'
+              : o.salary_period === 'monthly' || o.salary_period === 'stipend'
+                ? 'MONTH'
+                : 'YEAR',
+      },
+    };
+  }
+  structuredData.push(jsonLd);
+}
+---
+
+<PublicLayout
+  title={`${o.title}${o.company?.name ? ` at ${o.company.name}` : ''} — Hustler Community Opportunities`}
+  description={description}
+  ogType="article"
+  structuredData={structuredData}
+>
+  <div class="container">
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="/">Home</a><span class="sep">/</span>
+      <a href="/opportunities">Opportunities</a><span class="sep">/</span>
+      {o.category && (
+        <>
+          <a href={`/categories/${o.category.slug}`}>{o.category.name}</a><span class="sep">/</span>
+        </>
+      )}
+      <span aria-current="page">{o.title}</span>
+    </nav>
+
+    <div class="detail">
+      <div class="detail__grid">
+        <article>
+          <header class="detail__head">
+            <div class="detail__eyebrow">
+              {o.category ? (
+                <a class="chip chip--teal" href={`/categories/${o.category.slug}`}>{o.category.name}</a>
+              ) : (
+                <span class="chip chip--muted">Uncategorised</span>
+              )}
+              <span class:list={['chip', closed ? 'chip--muted' : 'chip--orange']}>{fresh}</span>
+              <span class="chip">
+                <Icon name="clock" size={11} /> Discovered {relativeTime(o.discovered_at).toLowerCase()}
+              </span>
+              {o.is_featured && !closed && <span class="chip chip--orange">Featured</span>}
+            </div>
+
+            <h1>{o.title}</h1>
+
+            <div class="detail__company">
+              <Icon name="building" size={16} />
+              {companyWebsite ? (
+                <a href={companyWebsite} target="_blank" rel="noopener noreferrer nofollow">{o.company?.name}</a>
+              ) : (
+                <span>{o.company?.name ?? 'Company not specified'}</span>
+              )}
+              {o.company?.verified ? (
+                <span class="chip chip--teal"><Icon name="shield" size={10} /> Verified company</span>
+              ) : (
+                <span class="chip chip--muted">Company not yet verified</span>
+              )}
+            </div>
+
+            <div class="detail__meta">
+              <span class="chip"><Icon name="map-pin" size={11} />{place}</span>
+              <span class="chip"><Icon name="briefcase" size={11} />{WORK_MODE_LABELS[o.work_mode]}</span>
+              <span class="chip"><Icon name="clock" size={11} />{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span>
+              <span class="chip">{experience}</span>
+              <span class:list={['chip', o.salary_min == null && o.salary_max == null && 'chip--muted']}>{salary}</span>
+              {o.deadline && <span class="chip">Apply by {formatDate(o.deadline)}</span>}
+            </div>
+          </header>
+
+          {closed && (
+            <div class="closed-banner" role="status" style="margin-top:1.5rem">
+              <strong>This opportunity is closed.</strong>
+              It is preserved for reference and no longer accepts applications. Structured job data has been removed
+              from this page.
+            </div>
+          )}
+
+          <div class="detail__summary">
+            {o.summary ?? (
+              <span class="muted">
+                The original source did not include a summary. We do not write one from assumptions — check the source
+                post for the full description.
+              </span>
+            )}
+          </div>
+
+          {o.responsibilities.length > 0 && (
+            <section class="detail__section">
+              <h2>What you'll work on</h2>
+              <ul>{o.responsibilities.map((item) => <li>{item}</li>)}</ul>
+            </section>
+          )}
+
+          {o.requirements.length > 0 && (
+            <section class="detail__section">
+              <h2>What they're looking for</h2>
+              <ul>{o.requirements.map((item) => <li>{item}</li>)}</ul>
+            </section>
+          )}
+
+          {(o.skills.length > 0 || o.preferred_skills.length > 0) && (
+            <section class="detail__section">
+              <h2>Skills</h2>
+              {o.skills.length > 0 && (
+                <div style="margin-bottom:1rem">
+                  <p class="tiny muted" style="margin-bottom:0.6rem">Required / stated</p>
+                  <div class="skill-tags">
+                    {o.skills.map((skill) => <span class="chip">{skill}</span>)}
+                  </div>
+                </div>
+              )}
+              {o.preferred_skills.length > 0 && (
+                <div>
+                  <p class="tiny muted" style="margin-bottom:0.6rem">Nice to have</p>
+                  <div class="skill-tags">
+                    {o.preferred_skills.map((skill) => <span class="chip chip--muted">{skill}</span>)}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {o.application_instructions && (
+            <section class="detail__section">
+              <h2>Application instructions</h2>
+              <p style="color:var(--text-dim);white-space:pre-line;line-height:1.7">{o.application_instructions}</p>
+            </section>
+          )}
+
+          <section class="detail__section">
+            <h2>Source & verification</h2>
+            <div class="stack">
+              <div class="trust-note">
+                <Icon name="shield" size={16} />
+                <div>
+                  <strong style="color:var(--text)">How this listing was built.</strong>
+                  Role details, salary, location and dates are transcribed or summarised from the original source.
+                  The category, company link, verification status and application route are checked by an editor.
+                  Anything the source did not state is shown as “Not specified” — never guessed.
+                </div>
+              </div>
+
+              <div class="meta-list">
+                <div class="meta-list__row">
+                  <span class="meta-list__key">Source type</span>
+                  <span class="meta-list__val">
+                    {o.source_type ? o.source_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Not specified'}
+                  </span>
+                </div>
+                <div class="meta-list__row">
+                  <span class="meta-list__key">Original post</span>
+                  <span class="meta-list__val">
+                    {o.source_url ? (
+                      <a href={o.source_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+                        Open source <Icon name="arrow-up-right" size={11} />
+                      </a>
+                    ) : (
+                      'Not specified'
+                    )}
+                  </span>
+                </div>
+                <div class="meta-list__row">
+                  <span class="meta-list__key">Verification</span>
+                  <span class="meta-list__val">{VERIFICATION_LABELS[o.verification_status]}</span>
+                </div>
+                <div class="meta-list__row">
+                  <span class="meta-list__key">Last checked</span>
+                  <span class="meta-list__val">{o.last_verified_at ? formatDate(o.last_verified_at) : 'Not yet checked'}</span>
+                </div>
+              </div>
+
+              {routeResult.warnings.length > 0 && (
+                <div class="alert alert--warning" style="margin-bottom:0">
+                  {routeResult.warnings.map((warning) => <div>{warning}</div>)}
+                </div>
+              )}
+            </div>
+          </section>
+        </article>
+
+        <aside class="detail__apply">
+          <ApplyPanel opportunity={o} routes={routes} closed={closed} />
+
+          <div class="meta-list">
+            <div class="meta-list__row"><span class="meta-list__key">Salary</span><span class="meta-list__val">{salary}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Experience</span><span class="meta-list__val">{experience}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Work mode</span><span class="meta-list__val">{WORK_MODE_LABELS[o.work_mode]}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Employment</span><span class="meta-list__val">{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Location</span><span class="meta-list__val">{place}</span></div>
+            <div class="meta-list__row">
+              <span class="meta-list__key">Original post date</span>
+              <span class="meta-list__val">
+                {o.original_posted_at ? formatDate(o.original_posted_at) : 'Not specified'}
+                {o.original_date_precision !== 'exact' && o.original_date_precision !== 'unknown' && (
+                  <div class="tiny muted">{o.original_date_text ?? `Source stated: ${o.original_date_precision}`}</div>
+                )}
+              </span>
+            </div>
+            <div class="meta-list__row"><span class="meta-list__key">Discovered</span><span class="meta-list__val">{formatDate(o.discovered_at)}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Published</span><span class="meta-list__val">{o.published_at ? formatDate(o.published_at) : 'Not published'}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Deadline</span><span class="meta-list__val">{o.deadline ? formatDate(o.deadline) : 'Not specified'}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Application route</span><span class="meta-list__val">{APPLICATION_METHOD_LABELS[o.application_method]}</span></div>
+          </div>
+
+          <ShareBar url={publicUrl} title={`${o.title}${o.company?.name ? ` at ${o.company.name}` : ''}`} opportunityId={o.id} />
+
+          <div class="cluster" style="justify-content:space-between">
+            <a class="tiny muted" href="/opportunities" style="text-decoration:underline">
+              <Icon name="arrow-left" size={11} /> All opportunities
+            </a>
+            <a class="tiny muted" href={`/report?opportunity=${o.id}`} style="text-decoration:underline">
+              <Icon name="flag" size={11} /> Report this listing
+            </a>
+          </div>
+
+          {!closed && (
+            <p class="tiny muted" style="line-height:1.6">
+              We track anonymous outbound clicks to understand which roles people find useful. We never record
+              applications, identities or contact details.
+            </p>
+          )}
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <div hidden data-view-event data-opportunity-id={o.id} data-slug={o.slug}></div>
+</PublicLayout>
+
+<script>
+  const view = document.querySelector<HTMLElement>('[data-view-event]');
+  const id = view?.dataset.opportunityId ?? '';
+  const slug = view?.dataset.slug ?? '';
+  if (id && slug) {
+    try {
+      const key = `hc-view:${slug}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        void fetch('/api/public/track', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ opportunity_id: id, event_type: 'view' }),
+          keepalive: true,
+        });
+      }
+    } catch {
+      // Never block the page for analytics.
+    }
+  }
+</script>

@@ -1,0 +1,171 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadCommentQueue } from '../../lib/admin-data';
+import { STATUS_LABELS, relativeTime } from '../../lib/domain/format';
+import type { CommentWithOpportunity } from '../../lib/store/types';
+
+const env = Astro.locals.env;
+const queue = await loadCommentQueue(env, 120);
+
+const STYLE_LABELS: Record<CommentWithOpportunity['style'], string> = {
+  professional: 'Professional',
+  community: 'Community-focused',
+  conversational: 'Short & conversational',
+};
+
+type Group = {
+  id: string;
+  title: string;
+  slug: string;
+  status: CommentWithOpportunity['opportunity']['status'];
+  company: string | null;
+  comments: CommentWithOpportunity[];
+};
+
+const groups: Group[] = [];
+const index = new Map<string, Group>();
+for (const comment of queue.data) {
+  let group = index.get(comment.opportunity_id);
+  if (!group) {
+    group = {
+      id: comment.opportunity_id,
+      title: comment.opportunity.title,
+      slug: comment.opportunity.slug,
+      status: comment.opportunity.status,
+      company: comment.opportunity.company_name ?? null,
+      comments: [],
+    };
+    index.set(comment.opportunity_id, group);
+    groups.push(group);
+  }
+  group.comments.push(comment);
+}
+
+const selectedCount = queue.data.filter((comment) => comment.is_selected).length;
+const postedCount = queue.data.filter((comment) => comment.manually_posted).length;
+---
+
+<AdminLayout
+  title="Comments"
+  description="Three role-relevant variants per live opportunity. Copy one and post it yourself — nothing is automated, and no URL appears before publication."
+  active="comments"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities?status=published"><Icon name="briefcase" size={14} /> Published roles</a>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:1.5rem">
+    <div class="stat-card">
+      <div class="stat-card__label">Opportunities with comments</div>
+      <div class="stat-card__value">{groups.length}</div>
+      <div class="stat-card__hint">Generated from reviewed fields only</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Variants ready</div>
+      <div class="stat-card__value">{queue.data.length}</div>
+      <div class="stat-card__hint">{selectedCount} selected for manual posting</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Marked posted manually</div>
+      <div class="stat-card__value">{postedCount}</div>
+      <div class="stat-card__hint">Tracking only — no engagement is automated</div>
+    </div>
+  </div>
+
+  <div class="notice" style="margin-bottom:1.5rem">
+    <strong>Manual posting only.</strong> The workspace never signs in to LinkedIn, never comments on your behalf and never
+    automates engagement. Regenerate comments after the listing goes live so the public URL can be included.
+  </div>
+
+  {groups.length ? (
+    <div class="stack">
+      {groups.map((group) => (
+        <section class="panel" data-comment-group data-opportunity-id={group.id}>
+          <div class="panel__head">
+            <span class="panel__title">
+              <Icon name="message" size={14} />
+              <a href={`/admin/opportunities/${group.id}`} style="text-decoration:underline">{group.title}</a>
+            </span>
+            <div class="cluster">
+              <span class:list={['badge', `badge--${group.status}`]}>{STATUS_LABELS[group.status]}</span>
+              {group.status === 'published' && (
+                <a class="tiny" href={`/opportunities/${group.slug}`} target="_blank" rel="noopener" style="text-decoration:underline">
+                  Public page <Icon name="arrow-up-right" size={10} />
+                </a>
+              )}
+              <a class="btn btn--outline btn--sm" href={`/admin/opportunities/${group.id}#comments`}>Open studio</a>
+            </div>
+          </div>
+          <div class="panel__body">
+            <div class="tiny muted" style="margin-bottom:0.75rem">
+              {group.company ?? 'Company not set'} · {group.status === 'published' ? 'URL allowed in comments' : 'No URL until published'}
+            </div>
+
+            <div class="comment-list">
+              {group.comments.map((comment) => (
+                <article class:list={['comment-row', comment.is_selected && 'is-selected']}>
+                  <div class="comment-row__meta">
+                    <span class="comment-card__style">{STYLE_LABELS[comment.style]}</span>
+                    {comment.is_selected && <span class="badge badge--published">Selected</span>}
+                    {comment.manually_posted && <span class="badge badge--approved">Posted manually</span>}
+                    <span class="badge">{comment.generated_by}</span>
+                    <span class="tiny muted">v{comment.version} · {relativeTime(comment.updated_at)}</span>
+                  </div>
+                  <p class="comment-row__body">{comment.body}</p>
+                  <div class="cluster">
+                    <button class="btn btn--outline btn--sm" type="button" data-copy={comment.body}>
+                      <Icon name="copy" size={12} /> Copy
+                    </button>
+                    {comment.includes_listing_url && <span class="badge badge--published">Includes listing URL</span>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      ))}
+    </div>
+  ) : (
+    <div class="panel">
+      <div class="table-empty">
+        <p>No generated comments yet.</p>
+        <p class="tiny muted" style="margin-top:0.4rem">
+          Comments are generated when a draft is saved and when a listing is published. Open an opportunity to create or
+          regenerate the three variants.
+        </p>
+        <a class="btn btn--outline btn--sm" href="/admin/opportunities" style="margin-top:0.75rem">Open opportunities</a>
+      </div>
+    </div>
+  )}
+
+  <div class="alert alert--success" data-copy-status role="status" aria-live="polite" hidden style="margin-top:1rem"></div>
+  <div class="alert alert--error" data-copy-error role="alert" hidden style="margin-top:1rem"></div>
+</AdminLayout>
+
+<script>
+  const statusBox = document.querySelector<HTMLElement>('[data-copy-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-copy-error]');
+  const buttons = document.querySelectorAll<HTMLButtonElement>('[data-copy]');
+
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      const text = button.dataset.copy ?? '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        if (errorBox) errorBox.hidden = true;
+        if (statusBox) {
+          statusBox.hidden = false;
+          statusBox.textContent = 'Comment copied. Paste it into LinkedIn yourself — no automation runs.';
+        }
+      } catch {
+        if (statusBox) statusBox.hidden = true;
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = 'Clipboard unavailable. Open the studio to select and copy the text manually.';
+        }
+      }
+    });
+  }
+</script>

@@ -1,0 +1,180 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { loadAdminOpportunities } from '../../lib/admin-data';
+import { relativeTime } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const pending = await loadAdminOpportunities(env, { status: 'pending_review', pageSize: 50, sort: 'oldest' });
+const drafts = await loadAdminOpportunities(env, { status: 'draft', pageSize: 8, sort: 'updated' });
+const waiting = pending.data.items;
+---
+
+<AdminLayout
+  title="Pending review"
+  description="Every listing waiting for a human. Nothing here is public. Confirm the source, the application route and the dates before publishing or rejecting."
+  active="pending"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--primary btn--sm" href="/admin/capture"><Icon name="zap" size={14} /> Capture a role</a>
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities?status=pending_review"><Icon name="list" size={14} /> Full table</a>
+  </div>
+
+  <div class="panel">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="inbox" size={14} /> Awaiting review</span>
+      <span class="tiny muted">{waiting.length} in queue · oldest first</span>
+    </div>
+
+    {waiting.length ? (
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Application route</th>
+              <th>Source</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {waiting.map((o) => (
+              <tr>
+                <td>
+                  <div class="cell-title"><a href={`/admin/opportunities/${o.id}`}>{o.title}</a></div>
+                  <div class="cell-sub">
+                    {o.company?.name ?? 'Company not set'} · {o.category?.name ?? 'No category'} ·{' '}
+                    {[o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Location not specified'}
+                  </div>
+                </td>
+                <td class="tiny">
+                  {o.application_url && <div>URL: {o.application_url.slice(0, 48)}{o.application_url.length > 48 ? '…' : ''}</div>}
+                  {o.recruitment_email && <div>Email: {o.recruitment_email}</div>}
+                  {o.careers_url && <div>Careers page</div>}
+                  {!o.application_url && !o.recruitment_email && !o.careers_url && (
+                    <span class="badge badge--warn">No route yet</span>
+                  )}
+                </td>
+                <td class="tiny muted">
+                  {o.source_url ? (
+                    <a href={o.source_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+                      {o.source_type?.replace(/_/g, ' ') ?? 'Source'} <Icon name="arrow-up-right" size={10} />
+                    </a>
+                  ) : (
+                    'No source URL'
+                  )}
+                </td>
+                <td class="tiny muted">{relativeTime(o.updated_at)}</td>
+                <td>
+                  <div class="actions">
+                    <button class="btn btn--primary btn--sm" type="button" data-transition="publish" data-id={o.id}>
+                      Publish
+                    </button>
+                    <button class="btn btn--danger btn--sm" type="button" data-transition="reject" data-id={o.id}>
+                      Reject
+                    </button>
+                    <a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Review</a>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div class="table-empty">
+        <p>The review queue is clear.</p>
+        <p class="tiny muted" style="margin-top:0.4rem">New captures and submissions land here before anything goes live.</p>
+        <a class="btn btn--outline btn--sm" href="/admin/capture" style="margin-top:0.75rem">Capture a new role</a>
+      </div>
+    )}
+  </div>
+
+  <div class="alert alert--info" data-queue-status role="status" aria-live="polite" hidden style="margin-top:1rem"></div>
+  <div class="alert alert--error" data-queue-error role="alert" hidden style="margin-top:1rem"></div>
+
+  <div class="panel" style="margin-top:1.5rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="edit" size={14} /> Recent drafts</span>
+      <a class="tiny muted" href="/admin/opportunities?status=draft">All drafts <Icon name="arrow-right" size={11} /></a>
+    </div>
+    <div class="panel__body panel__body--flush">
+      {drafts.data.items.length ? (
+        <div class="table-wrap">
+          <table class="data-table">
+            <tbody>
+              {drafts.data.items.map((o) => (
+                <tr>
+                  <td>
+                    <div class="cell-title">{o.title}</div>
+                    <div class="cell-sub">{o.company?.name ?? 'Company not set'} · updated {relativeTime(o.updated_at)}</div>
+                  </td>
+                  <td style="text-align:right">
+                    <a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Continue</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="table-empty">No drafts in progress.</div>
+      )}
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  const statusBox = document.querySelector<HTMLElement>('[data-queue-status]');
+  const errorBox = document.querySelector<HTMLElement>('[data-queue-error]');
+  const buttons = document.querySelectorAll<HTMLButtonElement>('[data-transition]');
+
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.transition ?? '';
+      const id = button.dataset.id ?? '';
+      if (!id || !action) return;
+      if (action === 'publish' && !window.confirm('Publish this listing? Every field and the application route are revalidated.')) return;
+      if (action === 'reject' && !window.confirm('Reject this listing? It leaves the queue and stays preserved for the record.')) return;
+
+      button.setAttribute('disabled', 'true');
+      if (statusBox) statusBox.hidden = true;
+      if (errorBox) errorBox.hidden = true;
+      if (statusBox) {
+        statusBox.hidden = false;
+        statusBox.textContent = action === 'publish' ? 'Publishing…' : 'Updating…';
+      }
+
+      try {
+        const response = await fetch(`/api/admin/opportunities/${id}/transition`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+        const result = (await response.json().catch(() => null)) as
+          | { ok?: boolean; status?: string; error?: string; blocking?: string[] }
+          | null;
+        if (!response.ok || !result?.ok) {
+          if (statusBox) statusBox.hidden = true;
+          if (errorBox) {
+            errorBox.hidden = false;
+            errorBox.textContent = `${result?.error ?? 'The action failed.'}${
+              result?.blocking?.length ? ` ${result.blocking.join(' ')}` : ''
+            }`;
+          }
+          button.removeAttribute('disabled');
+          return;
+        }
+        window.location.reload();
+      } catch {
+        if (statusBox) statusBox.hidden = true;
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = 'Network error. Nothing was changed.';
+        }
+        button.removeAttribute('disabled');
+      }
+    });
+  }
+</script>

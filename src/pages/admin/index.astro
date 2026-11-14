@@ -1,0 +1,297 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Icon from '../../components/Icon.astro';
+import {
+  loadActivity,
+  loadAdminOpportunities,
+  loadAdminSettings,
+  loadAdminStats,
+  loadCaptures,
+  loadNeedsVerification,
+  loadReports,
+} from '../../lib/admin-data';
+import { configurationReport } from '../../lib/env';
+import { relativeTime, formatDate, pluralize } from '../../lib/domain/format';
+
+const env = Astro.locals.env;
+const admin = Astro.locals.admin!;
+const settings = await loadAdminSettings(env);
+const days = settings.available ? settings.data.verification_reminder_days : 14;
+
+const [stats, pending, drafts, captures, verification, reports, activity] = await Promise.all([
+  loadAdminStats(env),
+  loadAdminOpportunities(env, { status: 'pending_review', pageSize: 5, sort: 'updated' }),
+  loadAdminOpportunities(env, { status: 'draft', pageSize: 4, sort: 'updated' }),
+  loadCaptures(env, { page: 1, pageSize: 5 }),
+  loadNeedsVerification(env, days),
+  loadReports(env, 'open'),
+  loadActivity(env, 8),
+]);
+
+const s = stats.data;
+const config = configurationReport(env);
+const checking = verification.data.slice(0, 5);
+const openReports = reports.data.slice(0, 4);
+const firstName = (admin.display_name || admin.email).split(/[\s@]/)[0];
+
+const integrations = [
+  { name: 'Supabase database', ok: config.database, hint: 'SUPABASE_URL + service role key' },
+  { name: 'Gemini extraction', ok: config.ai, hint: 'GEMINI_API_KEY' },
+  { name: 'Telegram capture bot', ok: config.telegram, hint: 'Bot token, webhook secret, allowlist' },
+  { name: 'Cloudflare Turnstile', ok: config.turnstile, hint: 'Public site key + secret key' },
+];
+---
+
+<AdminLayout
+  title="Overview"
+  description={`Welcome back, ${firstName}. Here is the current state of the board, the review queue and the capture pipeline.`}
+  active="overview"
+>
+  <div slot="actions" class="cluster">
+    <a class="btn btn--primary btn--sm" href="/admin/capture"><Icon name="zap" size={14} /> Capture a role</a>
+    <a class="btn btn--outline btn--sm" href="/admin/opportunities?status=draft"><Icon name="plus" size={14} /> New opportunity</a>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card stat-card--accent">
+      <div class="stat-card__label">Published</div>
+      <div class="stat-card__value">{s.published}</div>
+      <div class="stat-card__hint">{s.published_today} published today · {pluralize(s.total, 'role')} in total</div>
+    </div>
+    <div class="stat-card stat-card--warn">
+      <div class="stat-card__label">Pending review</div>
+      <div class="stat-card__value">{s.pending_review}</div>
+      <div class="stat-card__hint">{s.draft} draft{s.draft === 1 ? '' : 's'} waiting behind them</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Needs verification</div>
+      <div class="stat-card__value">{s.needs_verification}</div>
+      <div class="stat-card__hint">Not checked in {days} days</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Open reports</div>
+      <div class="stat-card__value">{s.open_reports}</div>
+      <div class="stat-card__hint">Submitted by the public</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Captures</div>
+      <div class="stat-card__value">{s.total_captures}</div>
+      <div class="stat-card__hint">{s.added_today} added today</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Duplicate flags</div>
+      <div class="stat-card__value">{s.duplicate_captures}</div>
+      <div class="stat-card__hint">Potential duplicates held for a human</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Closed</div>
+      <div class="stat-card__value">{s.closed}</div>
+      <div class="stat-card__hint">Preserved with applications disabled</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card__label">Expired</div>
+      <div class="stat-card__value">{s.expired}</div>
+      <div class="stat-card__hint">Deadline passed · {s.archived} archived</div>
+    </div>
+  </div>
+
+  <div class="panel-grid">
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="inbox" size={14} /> Review queue</span>
+        <a class="tiny muted" href="/admin/pending">Open queue <Icon name="arrow-right" size={11} /></a>
+      </div>
+      <div class="panel__body panel__body--flush">
+        {pending.data.items.length ? (
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Role</th><th>Status</th><th>Updated</th><th></th></tr>
+              </thead>
+              <tbody>
+                {pending.data.items.map((o) => (
+                  <tr>
+                    <td>
+                      <div class="cell-title">{o.title}</div>
+                      <div class="cell-sub">{o.company?.name ?? 'Company not set'} · {o.category?.name ?? 'No category'}</div>
+                    </td>
+                    <td><span class="badge badge--pending_review">Pending review</span></td>
+                    <td class="tiny muted">{relativeTime(o.updated_at)}</td>
+                    <td><a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Review</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="table-empty">
+            <p>The review queue is clear.</p>
+            <a class="btn btn--outline btn--sm" href="/admin/capture" style="margin-top:0.75rem">Capture a new role</a>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="zap" size={14} /> Recent captures</span>
+        <a class="tiny muted" href="/admin/capture">Pipeline <Icon name="arrow-right" size={11} /></a>
+      </div>
+      <div class="panel__body panel__body--flush">
+        {captures.data.items.length ? (
+          <div class="table-wrap">
+            <table class="data-table">
+              <tbody>
+                {captures.data.items.map((capture) => (
+                  <tr>
+                    <td>
+                      <div class="cell-title"><a href={`/admin/captures/${capture.id}`}>{capture.submitted_company ?? 'Untitled capture'}</a></div>
+                      <div class="cell-sub">{capture.source_type.replace(/_/g, ' ')} · {relativeTime(capture.created_at)}</div>
+                    </td>
+                    <td><span class:list={['badge', `badge--${capture.status}`]}>{capture.status.replace(/_/g, ' ')}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="table-empty">No captures yet. Paste a source post to start the pipeline.</div>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-columns" style="margin-top:1rem">
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="shield" size={14} /> Verification reminders</span>
+        <span class="tiny muted">{verification.data.length} due</span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        {checking.length ? (
+          <div class="table-wrap">
+            <table class="data-table">
+              <tbody>
+                {checking.map((o) => (
+                  <tr>
+                    <td>
+                      <div class="cell-title">{o.title}</div>
+                      <div class="cell-sub">{o.company?.name ?? 'Company not set'} · checked {o.last_verified_at ? relativeTime(o.last_verified_at) : 'never'}</div>
+                    </td>
+                    <td><a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Check</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="table-empty">Every published role has been checked within {days} days.</div>
+        )}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="flag" size={14} /> Open reports</span>
+        <a class="tiny muted" href="/admin/reports">All reports <Icon name="arrow-right" size={11} /></a>
+      </div>
+      <div class="panel__body panel__body--flush">
+        {openReports.length ? (
+          <div class="table-wrap">
+            <table class="data-table">
+              <tbody>
+                {openReports.map((report) => (
+                  <tr>
+                    <td>
+                      <div class="cell-title">{report.opportunity?.title ?? 'Listing removed'}</div>
+                      <div class="cell-sub">{report.reason.replace(/_/g, ' ')} · {relativeTime(report.created_at)}</div>
+                    </td>
+                    <td><a class="btn btn--outline btn--sm" href="/admin/reports">Review</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="table-empty">No open reports. Reported listings appear here for triage.</div>
+        )}
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-columns" style="margin-top:1rem">
+    <div class="panel">
+      <div class="panel__head"><span class="panel__title"><Icon name="clock" size={14} /> Activity</span></div>
+      <div class="panel__body">
+        {activity.data.length ? (
+          <div class="feed">
+            {activity.data.map((entry) => (
+              <div class="feed__item">
+                <span class="feed__dot" aria-hidden="true"></span>
+                <div class="feed__body">
+                  <strong>{entry.action.replace(/[._]/g, ' ')}</strong>
+                  <div class="tiny muted">{entry.entity_type}{entry.entity_id ? ` · ${entry.entity_id.slice(0, 8)}` : ''}</div>
+                </div>
+                <span class="feed__time">{relativeTime(entry.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p class="small muted">No activity recorded yet. Actions taken in the workspace are logged here.</p>
+        )}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="settings" size={14} /> Integrations</span>
+        <a class="tiny muted" href="/admin/settings">Configure <Icon name="arrow-right" size={11} /></a>
+      </div>
+      <div class="panel__body">
+        <div class="integration-list">
+          {integrations.map((integration) => (
+            <div class="integration">
+              <span class="integration__name">{integration.name}</span>
+              <span class:list={['status-dot', integration.ok ? 'status-dot--ok' : 'status-dot--off']}>
+                {integration.ok ? 'Connected' : integration.hint}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p class="tiny muted" style="margin-top:0.85rem;line-height:1.6">
+          The workspace degrades gracefully: captures and listings are preserved even when an integration is missing.
+          Nothing is simulated — a missing key shows a setup message instead of a fake success.
+        </p>
+        <div class="tiny muted" style="margin-top:0.6rem">
+          Data added today: <strong style="color:var(--text)">{s.added_today}</strong> · Last checked: {formatDate(new Date().toISOString())}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {drafts.data.items.length > 0 && (
+    <div class="panel" style="margin-top:1rem">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="edit" size={14} /> Drafts in progress</span>
+        <a class="tiny muted" href="/admin/opportunities?status=draft">All drafts <Icon name="arrow-right" size={11} /></a>
+      </div>
+      <div class="panel__body panel__body--flush">
+        <div class="table-wrap">
+          <table class="data-table">
+            <tbody>
+              {drafts.data.items.map((o) => (
+                <tr>
+                  <td>
+                    <div class="cell-title">{o.title}</div>
+                    <div class="cell-sub">{o.company?.name ?? 'Company not set'} · updated {relativeTime(o.updated_at)}</div>
+                  </td>
+                  <td><a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Continue editing</a></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )}
+</AdminLayout>
