@@ -1,0 +1,46 @@
+{
+  "name": "hustler-community-opportunities",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hustler Community Opportunities — curated startup opportunity discovery, capture and publishing platform.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "check": "astro check",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "preview": "astro preview",
+    "deploy": "npm run build && wrangler pages deploy dist",
+    "db:push": "echo \"Apply supabase/migrations/*.sql in the Supabase SQL editor (see README)\""
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "12.6.13",
+    "@astrojs/react": "4.4.2",
+    "@supabase/supabase-js": "2.119.0",
+    "astro": "5.18.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "eslint": "^9.39.1",
+    "eslint-plugin-astro": "^1.5.0",
+    "globals": "^16.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3",
+    "vitest": "3.2.7",
+    "wrangler": "^4.46.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
