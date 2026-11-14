@@ -1,0 +1,170 @@
+import type {
+  ActivityLog,
+  AdminProfile,
+  AdminStatistics,
+  AnalyticsSummary,
+  AppSettings,
+  Category,
+  CategoryWithCount,
+  CommentStyle,
+  Company,
+  CompanySource,
+  GeneratedComment,
+  HomeData,
+  Opportunity,
+  OpportunityDraft,
+  OpportunityStatus,
+  OpportunityWithRelations,
+  Report,
+  ReportReason,
+  ReportStatus,
+  ReportWithOpportunity,
+  SearchFilters,
+  SearchResult,
+  SourceCapture,
+  SourceType,
+  CaptureStatus,
+  VerificationStatus,
+} from '../domain/types';
+import type { DuplicateCandidate } from '../domain/duplicates';
+
+export type AdminOpportunityFilters = {
+  q?: string;
+  status?: OpportunityStatus | '';
+  category?: string;
+  sort?: 'newest' | 'oldest' | 'updated' | 'title';
+  page?: number;
+  pageSize?: number;
+};
+
+export type CaptureFilters = {
+  status?: CaptureStatus | '';
+  q?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type CommentSetInput = {
+  style: CommentStyle;
+  body: string;
+  includesListingUrl: boolean;
+};
+
+export type CommentWithOpportunity = GeneratedComment & {
+  opportunity: Pick<Opportunity, 'id' | 'slug' | 'title' | 'status' | 'company_id'> & {
+    company_name?: string | null;
+  };
+};
+
+export type LocationCount = { city: string; country: string | null; count: number; slug: string };
+
+/**
+ * Persistence contract. Services depend on this interface, never on Supabase
+ * directly. That keeps the public site, admin API and Telegram bot on one set
+ * of business rules, and lets the test suite run real workflows against an
+ * in-memory implementation.
+ */
+export interface Store {
+  /* categories */
+  listCategories(opts?: { activeOnly?: boolean }): Promise<Category[]>;
+  listCategoriesWithCounts(): Promise<CategoryWithCount[]>;
+  getCategoryBySlug(slug: string): Promise<Category | null>;
+  getCategoryById(id: string): Promise<Category | null>;
+  createCategory(input: Omit<Category, 'id' | 'created_at' | 'updated_at' | 'slug'> & { slug: string }): Promise<Category>;
+  updateCategory(id: string, patch: Partial<Category>): Promise<Category>;
+
+  /* companies */
+  listCompanies(opts?: { q?: string; limit?: number }): Promise<Company[]>;
+  getCompanyById(id: string): Promise<Company | null>;
+  findCompanyByName(name: string): Promise<Company | null>;
+  createCompany(input: { name: string; slug: string; website?: string | null; careers_url?: string | null; description?: string | null; verified?: boolean }): Promise<Company>;
+  updateCompany(id: string, patch: Partial<Company>): Promise<Company>;
+
+  /* opportunities */
+  searchPublic(filters: SearchFilters): Promise<SearchResult>;
+  listAdmin(filters: AdminOpportunityFilters): Promise<SearchResult>;
+  getOpportunityById(id: string): Promise<OpportunityWithRelations | null>;
+  getOpportunityBySlug(slug: string): Promise<OpportunityWithRelations | null>;
+  createOpportunity(draft: OpportunityDraft): Promise<Opportunity>;
+  updateOpportunity(id: string, patch: Partial<Opportunity>): Promise<Opportunity>;
+  deleteOpportunity(id: string): Promise<void>;
+  homepage(limit?: number): Promise<HomeData>;
+  recentDuplicateCandidates(limit?: number): Promise<DuplicateCandidate[]>;
+  findOpportunityBySourceKey(key: string): Promise<Opportunity | null>;
+  listPublicSlugs(): Promise<{ slug: string; updated_at: string }[]>;
+  listLocations(): Promise<LocationCount[]>;
+  listCountries(): Promise<{ country: string; count: number }[]>;
+  needsVerification(days: number): Promise<OpportunityWithRelations[]>;
+
+  /* captures */
+  createCapture(input: {
+    source_url: string | null;
+    normalized_source_key: string | null;
+    source_post_id?: string | null;
+    source_type: SourceType;
+    raw_text: string;
+    submitted_company?: string | null;
+    notes?: string | null;
+    created_by: string;
+    telegram_user_id?: number | null;
+    telegram_chat_id?: number | null;
+    telegram_message_id?: number | null;
+  }): Promise<SourceCapture>;
+  getCapture(id: string): Promise<SourceCapture | null>;
+  getCaptureBySourceKey(key: string): Promise<SourceCapture | null>;
+  updateCapture(id: string, patch: Partial<SourceCapture>): Promise<SourceCapture>;
+  listCaptures(filters: CaptureFilters): Promise<{ items: SourceCapture[]; total: number }>;
+  findAwaitingCapture(telegramUserId: number, maxAgeMinutes: number): Promise<SourceCapture | null>;
+  /** Clears raw post text and extraction payloads older than the retention window. */
+  purgeExpiredSourceText(olderThanDays: number): Promise<number>;
+
+  /* comments */
+  replaceComments(
+    opportunityId: string,
+    comments: CommentSetInput[],
+    opts: { generatedBy?: 'template' | 'ai'; selectedStyle?: CommentStyle },
+  ): Promise<GeneratedComment[]>;
+  listComments(opportunityId: string): Promise<GeneratedComment[]>;
+  getComment(id: string): Promise<GeneratedComment | null>;
+  updateComment(id: string, patch: Partial<Pick<GeneratedComment, 'body' | 'is_selected' | 'manually_posted'>>): Promise<GeneratedComment>;
+  listCommentQueue(limit?: number): Promise<CommentWithOpportunity[]>;
+  clearCommentSelection(opportunityId: string): Promise<void>;
+
+  /* reports */
+  createReport(input: {
+    opportunity_id: string;
+    reason: ReportReason;
+    details?: string | null;
+    contact_email?: string | null;
+  }): Promise<Report>;
+  listReports(status?: ReportStatus | ''): Promise<ReportWithOpportunity[]>;
+  getReport(id: string): Promise<ReportWithOpportunity | null>;
+  updateReport(id: string, patch: Partial<Report>): Promise<Report>;
+
+  /* events + analytics */
+  recordEvents(
+    events: { opportunity_id?: string | null; event_type: string; metadata?: Record<string, unknown> | null }[],
+  ): Promise<void>;
+  analytics(days: number): Promise<AnalyticsSummary>;
+
+  /* admin + platform */
+  adminStats(): Promise<AdminStatistics>;
+  getProfile(userId: string): Promise<AdminProfile | null>;
+  logActivity(log: { actor: string; action: string; entity_type: string; entity_id?: string | null; metadata?: Record<string, unknown> | null }): Promise<void>;
+  listActivity(limit?: number): Promise<ActivityLog[]>;
+  claimTelegramUpdate(updateId: number, telegramUserId?: number | null, updateType?: string | null): Promise<boolean>;
+  getSettings(): Promise<AppSettings>;
+  updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+
+  /* future ATS integrations */
+  listCompanySources(companyId?: string): Promise<CompanySource[]>;
+  upsertCompanySource(input: {
+    company_id: string;
+    provider: CompanySource['provider'];
+    board_identifier: string;
+    source_url?: string | null;
+    sync_status?: CompanySource['sync_status'];
+  }): Promise<CompanySource>;
+}
+
+export type { VerificationStatus, OpportunityStatus };
