@@ -1,0 +1,33 @@
+---
+import type { OpportunityWithRelations } from '../lib/domain/types';
+import { EMPLOYMENT_TYPE_LABELS, WORK_MODE_LABELS, formatSalary, relativeTime } from '../lib/domain/format';
+import Icon from './Icon.astro';
+
+interface Props {
+  opportunity: OpportunityWithRelations;
+}
+
+const { opportunity: o } = Astro.props;
+const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
+const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
+const href = `/opportunities/${o.slug}`;
+---
+
+<article class="opp-row">
+  <div>
+    <div class="opp-row__title"><a href={href}>{o.title}</a></div>
+    <div class="opp-row__sub">
+      {o.company?.name ?? 'Company not specified'}
+      {o.category ? ` · ${o.category.name}` : ''}
+    </div>
+  </div>
+  <div class="opp-row__meta">
+    <div>{place}</div>
+    <div>{WORK_MODE_LABELS[o.work_mode]} · {EMPLOYMENT_TYPE_LABELS[o.employment_type]}</div>
+  </div>
+  <div class="opp-row__meta">
+    <div>{salary}</div>
+    <div>{o.original_posted_at ? `Posted ${relativeTime(o.original_posted_at).toLowerCase()}` : 'Original date not specified'}</div>
+  </div>
+  <span class="opp-row__arrow"><Icon name="arrow-right" size={15} /></span>
+</article>

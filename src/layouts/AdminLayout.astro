@@ -1,0 +1,182 @@
+---
+import '../styles/global.css';
+import Icon from '../components/Icon.astro';
+import type { IconName } from '../lib/domain/icons';
+import { loadAdminStats, initials } from '../lib/admin-data';
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Matches the data-nav key of the current section. */
+  active: string;
+  /** Optional eyebrow above the page title. */
+  eyebrow?: string;
+  bodyClass?: string;
+}
+
+const { title, description, active, eyebrow = 'Admin workspace', bodyClass = '' } = Astro.props;
+const env = Astro.locals.env;
+const admin = Astro.locals.admin!;
+const stats = await loadAdminStats(env);
+
+type NavItem = { key: string; href: string; label: string; icon: IconName; badge?: number; exact?: boolean };
+type NavGroup = { label: string; items: NavItem[] };
+
+const pending = stats.available ? stats.data.pending_review : 0;
+const openReports = stats.available ? stats.data.open_reports : 0;
+
+const groups: NavGroup[] = [
+  {
+    label: 'Workspace',
+    items: [
+      { key: 'overview', href: '/admin', label: 'Overview', icon: 'home', exact: true },
+      { key: 'capture', href: '/admin/capture', label: 'Capture', icon: 'zap' },
+      { key: 'opportunities', href: '/admin/opportunities', label: 'Opportunities', icon: 'briefcase' },
+      { key: 'pending', href: '/admin/pending', label: 'Pending review', icon: 'inbox', badge: pending },
+      { key: 'comments', href: '/admin/comments', label: 'Comments', icon: 'message' },
+    ],
+  },
+  {
+    label: 'Moderation',
+    items: [
+      { key: 'reports', href: '/admin/reports', label: 'Reports', icon: 'flag', badge: openReports },
+      { key: 'companies', href: '/admin/companies', label: 'Companies', icon: 'building' },
+      { key: 'categories', href: '/admin/categories', label: 'Categories', icon: 'folder' },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { key: 'analytics', href: '/admin/analytics', label: 'Analytics', icon: 'chart' },
+      { key: 'settings', href: '/admin/settings', label: 'Settings', icon: 'settings' },
+    ],
+  },
+];
+
+function isActive(item: NavItem): boolean {
+  if (item.exact) return active === item.key;
+  return active === item.key;
+}
+
+const fullTitle = `${title} · Admin · Hustler Community`;
+const initialsText = initials(admin.display_name || admin.email);
+const mobileItems = groups[0].items.filter((item) => ['overview', 'capture', 'opportunities', 'pending'].includes(item.key));
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="theme-color" content="#050505" />
+    <link rel="icon" href="/brand/h-mark.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/brand/wordmark.png" />
+  </head>
+  <body class:list={['admin-body', bodyClass]}>
+    <div class="admin-shell" data-admin-shell>
+      <aside class="admin-sidebar" id="admin-sidebar" aria-label="Admin navigation">
+        <a class="brand" href="/admin" aria-label="Hustler Community admin home">
+          <img src="/brand/wordmark.png" alt="Hustler Community" style="height:26px;width:auto" />
+        </a>
+
+        {groups.map((group) => (
+          <nav class="admin-nav" aria-label={group.label}>
+            <span class="admin-nav__label">{group.label}</span>
+            {group.items.map((item) => (
+              <a href={item.href} aria-current={isActive(item) ? 'page' : undefined}>
+                <Icon name={item.icon} size={16} />
+                <span>{item.label}</span>
+                {item.badge ? <span class="admin-nav__badge">{item.badge > 99 ? '99+' : item.badge}</span> : null}
+              </a>
+            ))}
+          </nav>
+        ))}
+
+        <div class="admin-sidebar__foot">
+          <div style="margin-bottom:0.5rem">
+            <span class:list={['status-dot', stats.available ? 'status-dot--ok' : 'status-dot--off']}>
+              {stats.available ? 'Database connected' : 'Database not configured'}
+            </span>
+          </div>
+          <a href="/" style="color:var(--text-dim)">View public site <Icon name="arrow-up-right" size={11} /></a>
+          <p class="tiny" style="margin-top:0.5rem;line-height:1.5">
+            Raw source text is private. Everything here is behind server-side authorisation.
+          </p>
+        </div>
+      </aside>
+
+      <div class="admin-main">
+        <header class="admin-topbar">
+          <div class="admin-topbar__left">
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm admin-mobile-toggle"
+              data-admin-menu
+              aria-expanded="false"
+              aria-controls="admin-sidebar"
+            >
+              <Icon name="menu" size={16} /> <span class="sr-only">Toggle navigation</span>
+            </button>
+            <span class="admin-topbar__title">{title}</span>
+          </div>
+          <div class="admin-topbar__right">
+            <a class="btn btn--outline btn--sm" href="/opportunities" target="_blank" rel="noopener">
+              Public directory <Icon name="arrow-up-right" size={12} />
+            </a>
+            <span class="admin-user">
+              <span class="avatar" aria-hidden="true">{initialsText}</span>
+              <span class="sr-only">Signed in as</span>
+              <span>{admin.email}</span>
+              <span class="badge badge--draft">{admin.role}</span>
+            </span>
+            <form method="POST" action="/api/admin/logout">
+              <button class="btn btn--ghost btn--sm" type="submit">
+                <Icon name="logout" size={14} /> Sign out
+              </button>
+            </form>
+          </div>
+        </header>
+
+        <main class="admin-content" id="main">
+          {!stats.available && (
+            <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
+              <strong>Admin data is unavailable.</strong> {stats.error} Apply the Supabase migrations and set
+              <code> SUPABASE_URL</code> and <code>SUPABASE_SERVICE_ROLE_KEY</code> to load the workspace.
+            </div>
+          )}
+          <div class="admin-page-head">
+            <div>
+              <span class="eyebrow eyebrow--orange">{eyebrow}</span>
+              <h1>{title}</h1>
+              {description && <p>{description}</p>}
+            </div>
+            <div class="cluster">
+              <slot name="actions" />
+            </div>
+          </div>
+          <slot />
+        </main>
+
+        <nav class="admin-bottom-nav" aria-label="Admin quick navigation">
+          {mobileItems.map((item) => (
+            <a href={item.href} aria-current={isActive(item) ? 'page' : undefined}>
+              <Icon name={item.icon} size={18} />
+              <span>{item.label}</span>
+            </a>
+          ))}
+        </nav>
+      </div>
+    </div>
+
+    <script>
+      const sidebar = document.getElementById('admin-sidebar');
+      const toggle = document.querySelector<HTMLButtonElement>('[data-admin-menu]');
+      toggle?.addEventListener('click', () => {
+        const open = sidebar?.classList.toggle('is-open') ?? false;
+        toggle.setAttribute('aria-expanded', String(open));
+      });
+    </script>
+  </body>
+</html>

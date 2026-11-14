@@ -1,0 +1,46 @@
+---
+import Logo from './Logo.astro';
+import Icon from './Icon.astro';
+
+const path = Astro.url.pathname;
+const links = [
+  { href: '/opportunities', label: 'Opportunities' },
+  { href: '/categories', label: 'Categories' },
+  { href: '/locations', label: 'Locations' },
+  { href: '/about', label: 'About' },
+];
+const isActive = (href: string) => path === href || path.startsWith(`${href}/`);
+---
+
+<header class="site-header">
+  <div class="container site-header__inner">
+    <Logo />
+
+    <nav class="site-nav" aria-label="Primary">
+      {
+        links.map((link) => (
+          <a href={link.href} aria-current={isActive(link.href) ? 'page' : undefined}>
+            {link.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="header-actions">
+      <a href="/submit" class="btn btn--primary">
+        Submit an opportunity
+        <Icon name="arrow-up-right" size={14} />
+      </a>
+
+      <details class="mobile-menu">
+        <summary aria-label="Open menu"><Icon name="menu" size={20} /></summary>
+        <div class="mobile-menu__panel">
+          {links.map((link) => <a href={link.href} aria-current={isActive(link.href) ? 'page' : undefined}>{link.label}</a>)}
+          <a href="/submit">Submit an opportunity</a>
+          <a href="/report">Report a listing</a>
+          <a href="/admin/login">Admin sign in</a>
+        </div>
+      </details>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,77 @@
+---
+import type { OpportunityWithRelations } from '../lib/domain/types';
+import {
+  EMPLOYMENT_TYPE_LABELS,
+  WORK_MODE_LABELS,
+  formatDate,
+  formatExperience,
+  formatSalary,
+  freshness,
+  relativeTime,
+} from '../lib/domain/format';
+import Icon from './Icon.astro';
+
+interface Props {
+  opportunity: OpportunityWithRelations;
+  featured?: boolean;
+}
+
+const { opportunity: o, featured = false } = Astro.props;
+
+const fresh = freshness(o);
+const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
+const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
+const experience = formatExperience(o.experience_min_years, o.experience_max_years);
+const href = `/opportunities/${o.slug}`;
+const sourceDateVerified = Boolean(o.original_posted_at && o.last_verified_at);
+---
+
+<article class:list={['opp-card', featured && 'opp-card--featured']}>
+  <div class="opp-card__top">
+    <span class="opp-card__category">{o.category?.name ?? 'Uncategorised'}</span>
+    <span class="opp-card__fresh" data-tone={fresh.tone} title={fresh.detail}>{fresh.label}</span>
+  </div>
+
+  <h3 class="opp-card__title">
+    <a href={href}>{o.title}</a>
+  </h3>
+
+  <div class="opp-card__company">
+    <Icon name="building" size={14} />
+    <span>{o.company?.name ?? 'Company not specified'}</span>
+    {
+      o.company?.verified && (
+        <span class="chip chip--teal" style="margin-left:0.25rem;font-size:0.5625rem">
+          <Icon name="shield" size={10} /> Verified company
+        </span>
+      )
+    }
+  </div>
+
+  <div class="opp-card__meta">
+    <span><Icon name="map-pin" size={13} />{place}</span>
+    <span><Icon name="briefcase" size={13} />{WORK_MODE_LABELS[o.work_mode]}</span>
+    <span><Icon name="clock" size={13} />{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span>
+  </div>
+
+  <div class="opp-card__facts">
+    <span class:list={['chip', o.salary_min == null && o.salary_max == null && 'chip--muted']}>{salary}</span>
+    {
+      (o.experience_min_years != null || o.experience_max_years != null) && (
+        <span class="chip chip--muted">{experience}</span>
+      )
+    }
+    {
+      sourceDateVerified && (
+        <span class="chip chip--muted" title="Original posting date as stated in the source, verified by an editor.">
+          Posted {formatDate(o.original_posted_at, { withYear: false })}
+        </span>
+      )
+    }
+  </div>
+
+  <div class="opp-card__foot">
+    <span>Discovered {relativeTime(o.discovered_at).toLowerCase()}</span>
+    <span class="opp-card__cta">View role <Icon name="arrow-right" size={13} /></span>
+  </div>
+</article>

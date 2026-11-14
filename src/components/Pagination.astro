@@ -1,0 +1,55 @@
+---
+import type { DirectoryParams } from '../lib/search-params';
+import { buildQuery, paginationRange } from '../lib/search-params';
+import Icon from './Icon.astro';
+
+interface Props {
+  params: DirectoryParams;
+  totalPages: number;
+  base?: string;
+}
+
+const { params, totalPages, base = '/opportunities' } = Astro.props;
+const range = paginationRange(params.page, totalPages);
+
+function pageHref(page: number): string {
+  const built = buildQuery({ ...params, page }, base);
+  return built;
+}
+---
+
+{
+  totalPages > 1 && (
+    <nav class="pagination" aria-label="Pagination">
+      {params.page > 1 ? (
+        <a href={pageHref(params.page - 1)} aria-label="Previous page">
+          <Icon name="chevron-left" size={14} />
+        </a>
+      ) : (
+        <span class="disabled" aria-hidden="true">
+          <Icon name="chevron-left" size={14} />
+        </span>
+      )}
+
+      {range.map((item) =>
+        item === 'gap' ? (
+          <span class="ellipsis" aria-hidden="true">…</span>
+        ) : item === params.page ? (
+          <span aria-current="page">{item}</span>
+        ) : (
+          <a href={pageHref(item)} aria-label={`Page ${item}`}>{item}</a>
+        ),
+      )}
+
+      {params.page < totalPages ? (
+        <a href={pageHref(params.page + 1)} aria-label="Next page">
+          <Icon name="chevron-right" size={14} />
+        </a>
+      ) : (
+        <span class="disabled" aria-hidden="true">
+          <Icon name="chevron-right" size={14} />
+        </span>
+      )}
+    </nav>
+  )
+}

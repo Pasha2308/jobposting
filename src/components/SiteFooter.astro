@@ -1,0 +1,72 @@
+---
+import Icon from './Icon.astro';
+import Logo from './Logo.astro';
+
+const year = new Date().getFullYear();
+const categories = [
+  { href: '/categories/founders-office', label: "Founder's Office" },
+  { href: '/categories/founder-associate', label: 'Founder Associate' },
+  { href: '/categories/chief-of-staff', label: 'Chief of Staff' },
+  { href: '/categories/growth', label: 'Growth' },
+  { href: '/categories/startup-internships', label: 'Startup Internships' },
+];
+---
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <Logo size={30} />
+        <p>
+          A curated opportunity directory from Hustler Community. Built for people who want to work close to
+          founders and start building.
+        </p>
+        <div class="cluster" style="margin-top:1.1rem">
+          <a
+            class="btn btn--sm btn--outline"
+            href="https://www.linkedin.com/company/hustlercommunity"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >
+            <Icon name="linkedin" size={14} /> LinkedIn
+          </a>
+          <a class="btn btn--sm btn--outline" href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">
+            Community site <Icon name="arrow-up-right" size={13} />
+          </a>
+        </div>
+      </div>
+
+      <div class="footer__col">
+        <h3>Discover</h3>
+        <a href="/opportunities">All opportunities</a>
+        <a href="/opportunities?workMode=remote">Remote roles</a>
+        <a href="/opportunities?employmentType=internship">Internships</a>
+        <a href="/categories">Categories</a>
+        <a href="/locations">Locations</a>
+      </div>
+
+      <div class="footer__col">
+        <h3>Roles</h3>
+        {categories.map((c) => <a href={c.href}>{c.label}</a>)}
+      </div>
+
+      <div class="footer__col">
+        <h3>Community</h3>
+        <a href="/about">About the directory</a>
+        <a href="/submit">Submit an opportunity</a>
+        <a href="/report">Report a listing</a>
+        <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">Hustler Community</a>
+        <a href="/api/health" rel="nofollow">Service status</a>
+      </div>
+    </div>
+
+    <div class="footer__bottom">
+      <span>© {year} Hustler Community. Opportunities are sourced from public posts and reviewed before publishing.</span>
+      <nav aria-label="Legal">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/admin/login">Admin</a>
+      </nav>
+    </div>
+  </div>
+</footer>

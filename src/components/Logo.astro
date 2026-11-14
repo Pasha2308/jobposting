@@ -1,0 +1,35 @@
+---
+/**
+ * Official Hustler Community mark (downloaded from hustlerscommunity.in and
+ * used unmodified apart from a cropped viewBox). Never stretched or recoloured.
+ */
+interface Props {
+  size?: number;
+  withText?: boolean;
+  href?: string;
+  class?: string;
+}
+
+const { size = 30, withText = true, href = '/', class: className = '' } = Astro.props;
+---
+
+<a href={href} class={`brand ${className}`} aria-label="Hustler Community Opportunities — home">
+  <img
+    src="/brand/h-mark.svg"
+    alt="Hustler Community"
+    class="brand__mark"
+    width={Math.round(size * 0.54)}
+    height={size}
+    style={`height:${size}px;width:auto`}
+    loading="eager"
+    decoding="async"
+  />
+  {
+    withText && (
+      <span class="brand__text">
+        <span class="brand__name">Hustler Community</span>
+        <span class="brand__sub">Opportunities</span>
+      </span>
+    )
+  }
+</a>

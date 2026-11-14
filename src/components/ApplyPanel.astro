@@ -1,0 +1,191 @@
+---
+import type { ApplicationRoute } from '../lib/domain/validation';
+import type { OpportunityWithRelations } from '../lib/domain/types';
+import { formatDate } from '../lib/domain/format';
+import Icon from './Icon.astro';
+
+interface Props {
+  opportunity: OpportunityWithRelations;
+  routes: ApplicationRoute[];
+  closed: boolean;
+}
+
+const { opportunity: o, routes, closed } = Astro.props;
+const companyName = o.company?.name ?? 'the team';
+const listingUrl = `${Astro.locals.env?.siteUrl ?? Astro.site ?? ''}/opportunities/${o.slug}`.replace(/([^:]\/)\/+/g, '$1');
+const subject = `Application: ${o.title}${o.company?.name ? ` at ${o.company.name}` : ''}`;
+const emailBody = [
+  `Hi ${companyName},`,
+  '',
+  `I'm writing to apply for the ${o.title} role listed on Hustler Community Opportunities.`,
+  '',
+  '[Add a short note about your relevant experience and why you are a fit.]',
+  '',
+  `Original listing: ${listingUrl}`,
+  '',
+  'Best,',
+  '[Your name]',
+  '[Portfolio / LinkedIn / phone]',
+].join('\r\n');
+const mailto = o.recruitment_email
+  ? `mailto:${o.recruitment_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`
+  : null;
+const primary = routes[0] ?? null;
+const secondary = routes.slice(1);
+const sourceHref = o.source_url;
+---
+
+<div class="apply-card" data-apply-card data-opportunity-id={o.id}>
+  <div class="apply-card__head">
+    <span class="apply-card__title">{closed ? 'Applications closed' : 'How to apply'}</span>
+    {closed ? (
+      <span class="badge badge--closed">Closed</span>
+    ) : o.last_verified_at ? (
+      <span class="badge badge--source_open"><Icon name="shield" size={10} /> Checked</span>
+    ) : (
+      <span class="badge badge--needs_verification">Unverified</span>
+    )}
+  </div>
+
+  {closed ? (
+    <div class="closed-banner" role="status">
+      <strong>This listing is no longer accepting applications.</strong>
+      It is kept online for reference. Do not send applications or contact the company about this role.
+      {sourceHref && (
+        <div style="margin-top:0.5rem">
+          <a href={sourceHref} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
+            View the original post
+          </a>
+        </div>
+      )}
+    </div>
+  ) : primary ? (
+    <div class="apply-card__routes">
+      {primary.method === 'email' ? (
+        <a class="btn btn--primary btn--block" href="#email-composer" data-scroll-composer>
+          <Icon name="mail" size={15} /> Compose application email
+        </a>
+      ) : (
+        <a
+          class="btn btn--primary btn--block"
+          href={primary.href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          data-track-route={primary.trackingType}
+        >
+          {primary.label} <Icon name="arrow-up-right" size={14} />
+        </a>
+      )}
+
+      {secondary.map((route) =>
+        route.method === 'email' ? (
+          <a class="btn btn--outline btn--block" href="#email-composer" data-scroll-composer>
+            <Icon name="mail" size={14} /> {route.label}
+          </a>
+        ) : (
+          <a
+            class="btn btn--outline btn--block"
+            href={route.href}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            data-track-route={route.trackingType}
+          >
+            {route.label} <Icon name="arrow-up-right" size={13} />
+          </a>
+        ),
+      )}
+    </div>
+  ) : (
+    <div class="alert alert--warning" role="status" style="margin-bottom:0">
+      <strong>Application route not verified.</strong>
+      We could not confirm a usable application link, email or original post for this listing. We do not invent contact
+      details — please do not send an application until an editor verifies the source.
+    </div>
+  )}
+
+  {!closed && o.deadline && (
+    <p class="apply-card__note">
+      <Icon name="calendar" size={12} /> Apply by <strong>{formatDate(o.deadline)}</strong>
+    </p>
+  )}
+
+  {!closed && o.application_instructions && (
+    <p class="apply-card__note">{o.application_instructions}</p>
+  )}
+
+  <p class="apply-card__note">
+    Application details are reproduced from the source. Hustler Community does not receive or screen applications.
+  </p>
+</div>
+
+{
+  !closed && mailto && (
+    <div class="apply-card email-composer" id="email-composer" data-email-composer data-mailto={mailto}>
+      <div class="apply-card__head" style="margin-bottom:0">
+        <span class="apply-card__title">Email application</span>
+        <span class="badge">Prefilled</span>
+      </div>
+      <p class="apply-card__note" style="margin-top:0">
+        To: <strong>{o.recruitment_email}</strong>. Edit the message before sending — we never send email on your behalf.
+      </p>
+      <label class="label" for="application-message">Message</label>
+      <textarea class="textarea" id="application-message" rows={9} data-email-body>{emailBody}</textarea>
+      <div class="cluster">
+        <a class="btn btn--secondary btn--sm" href={mailto} data-track-route="email_click">
+          <Icon name="mail" size={13} /> Open in email app
+        </a>
+        <button type="button" class="btn btn--ghost btn--sm" data-copy-email>
+          <Icon name="copy" size={13} /> Copy message
+        </button>
+        <span class="tiny muted" role="status" aria-live="polite" data-copy-status></span>
+      </div>
+    </div>
+  )
+}
+
+<script>
+  function track(eventType: string, opportunityId: string) {
+    if (!opportunityId) return;
+    try {
+      void fetch('/api/public/track', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ opportunity_id: opportunityId, event_type: eventType }),
+        keepalive: true,
+      });
+    } catch {
+      // Never block an outbound application.
+    }
+  }
+
+  for (const card of document.querySelectorAll<HTMLElement>('[data-apply-card]')) {
+    const opportunityId = card.dataset.opportunityId ?? '';
+    for (const link of card.querySelectorAll<HTMLAnchorElement>('[data-track-route]')) {
+      link.addEventListener('click', () => track(link.dataset.trackRoute ?? 'apply_click', opportunityId));
+    }
+  }
+
+  for (const link of document.querySelectorAll<HTMLAnchorElement>('[data-scroll-composer]')) {
+    link.addEventListener('click', (event) => {
+      const composer = document.getElementById('email-composer');
+      if (!composer) return;
+      event.preventDefault();
+      composer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      composer.querySelector<HTMLTextAreaElement>('[data-email-body]')?.focus({ preventScroll: true });
+    });
+  }
+
+  for (const composer of document.querySelectorAll<HTMLElement>('[data-email-composer]')) {
+    const button = composer.querySelector<HTMLButtonElement>('[data-copy-email]');
+    const textarea = composer.querySelector<HTMLTextAreaElement>('[data-email-body]');
+    const status = composer.querySelector<HTMLElement>('[data-copy-status]');
+    button?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(textarea?.value ?? '');
+        if (status) status.textContent = 'Message copied';
+      } catch {
+        if (status) status.textContent = 'Copy unavailable — select the text manually';
+      }
+    });
+  }
+</script>

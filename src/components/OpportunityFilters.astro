@@ -1,0 +1,133 @@
+---
+import type { CategoryWithCount } from '../lib/domain/types';
+import { EMPLOYMENT_TYPE_LABELS, WORK_MODE_LABELS } from '../lib/domain/format';
+import type { DirectoryParams } from '../lib/search-params';
+import { activeFilterCount } from '../lib/search-params';
+import Icon from './Icon.astro';
+
+interface Props {
+  params: DirectoryParams;
+  categories: CategoryWithCount[];
+  countries: { country: string; count: number }[];
+  cities: { city: string; country: string | null; count: number }[];
+}
+
+const { params, categories, countries, cities } = Astro.props;
+const count = activeFilterCount(params);
+const workModes = ['remote', 'hybrid', 'onsite'] as const;
+const employmentTypes = ['full_time', 'part_time', 'contract', 'internship', 'temporary'] as const;
+---
+
+<div class="filters__head">
+  <span class="filters__title">Filters {count > 0 && `(${count})`}</span>
+  <a href="/opportunities" class="tiny muted" style="text-decoration:underline">Clear all</a>
+</div>
+
+<form id="filters-form" method="GET" action="/opportunities" class="filters__form">
+  <input type="hidden" name="sort" value={params.sort} />
+  {params.q && <input type="hidden" name="q" value={params.q} />}
+  {params.currency && <input type="hidden" name="currency" value={params.currency} />}
+
+  <div class="filters__group">
+    <label class="label" for="filter-category">Category</label>
+    <select id="filter-category" name="category" class="select">
+      <option value="">All categories</option>
+      {
+        categories.map((c) => (
+          <option value={c.slug} selected={params.category === c.slug}>
+            {c.name} ({c.opportunity_count})
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  <div class="filters__group">
+    <label class="label" for="filter-country">Country</label>
+    <select id="filter-country" name="country" class="select">
+      <option value="">All countries</option>
+      {
+        countries.map((c) => (
+          <option value={c.country} selected={params.country.toLowerCase() === c.country.toLowerCase()}>
+            {c.country} ({c.count})
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  <div class="filters__group">
+    <label class="label" for="filter-city">City</label>
+    <select id="filter-city" name="city" class="select">
+      <option value="">All cities</option>
+      {
+        cities.map((c) => (
+          <option value={c.city} selected={params.city.toLowerCase() === c.city.toLowerCase()}>
+            {c.city}
+            {c.country ? `, ${c.country}` : ''} ({c.count})
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  <fieldset class="filters__group" style="border-left:0;border-right:0;border-bottom:0;margin:0;min-width:0">
+    <legend class="label" style="margin-bottom:0.4rem">Work mode</legend>
+    {
+      workModes.map((mode) => (
+        <label class="check">
+          <input type="checkbox" name="workMode" value={mode} checked={params.workMode.includes(mode)} />
+          {WORK_MODE_LABELS[mode]}
+        </label>
+      ))
+    }
+  </fieldset>
+
+  <fieldset class="filters__group" style="border-left:0;border-right:0;border-bottom:0;margin:0;min-width:0">
+    <legend class="label" style="margin-bottom:0.4rem">Employment type</legend>
+    {
+      employmentTypes.map((type) => (
+        <label class="check">
+          <input type="checkbox" name="employmentType" value={type} checked={params.employmentType.includes(type)} />
+          {EMPLOYMENT_TYPE_LABELS[type]}
+        </label>
+      ))
+    }
+  </fieldset>
+
+  <div class="filters__group">
+    <label class="label" for="filter-experience">Experience</label>
+    <select id="filter-experience" name="experience" class="select">
+      <option value="">Any experience</option>
+      <option value="entry" selected={params.experience === 'entry'}>Entry (0–2 years)</option>
+      <option value="mid" selected={params.experience === 'mid'}>Mid (2–5 years)</option>
+      <option value="senior" selected={params.experience === 'senior'}>Senior (5+ years)</option>
+    </select>
+  </div>
+
+  <div class="filters__group">
+    <label class="check" style="padding-block:0.2rem">
+      <input type="checkbox" name="salary" value="disclosed" checked={params.salaryDisclosed} />
+      Salary disclosed only
+    </label>
+  </div>
+
+  <div class="filters__actions">
+    <button type="submit" class="btn btn--secondary btn--sm">
+      <Icon name="filter" size={13} /> Apply filters
+    </button>
+    <a href="/opportunities" class="btn btn--ghost btn--sm">Reset</a>
+  </div>
+</form>
+
+<script>
+  const form = document.getElementById('filters-form') as HTMLFormElement | null;
+  if (form) {
+    form.addEventListener('change', (event) => {
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type === 'checkbox')) {
+        form.requestSubmit();
+      }
+    });
+  }
+</script>

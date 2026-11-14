@@ -1,0 +1,77 @@
+---
+import '../styles/global.css';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  /** Set false on thin/duplicate pages (closed listings, empty taxonomy pages). */
+  indexable?: boolean;
+  ogType?: 'website' | 'article';
+  ogImage?: string;
+  structuredData?: Record<string, unknown>[];
+  bodyClass?: string;
+}
+
+const {
+  title,
+  description,
+  indexable = true,
+  ogType = 'website',
+  ogImage = '/brand/wordmark.png',
+  structuredData = [],
+  bodyClass = '',
+} = Astro.props;
+
+const env = Astro.locals.env;
+const siteUrl = env?.siteUrl ?? Astro.site?.toString() ?? 'https://hustlercommunity-opportunities.pages.dev';
+const canonical = new URL(Astro.url.pathname, siteUrl).toString();
+const fullTitle = title.includes('Hustler Community') ? title : `${title} · Hustler Community Opportunities`;
+const image = new URL(ogImage, siteUrl).toString();
+const robots = indexable ? 'index,follow,max-image-preview:large' : 'noindex,follow';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="robots" content={robots} />
+    <meta name="theme-color" content="#050505" />
+    <link rel="icon" href="/brand/h-mark.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/brand/wordmark.png" />
+
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content="Hustler Community Opportunities" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={image} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={image} />
+
+    <link rel="sitemap" href="/sitemap.xml" />
+    <slot name="head" />
+
+    {
+      structuredData.map((data) => (
+        <script type="application/ld+json" set:html={JSON.stringify(data)} />
+      ))
+    }
+  </head>
+  <body class={bodyClass}>
+    <div class="page-glow" aria-hidden="true"></div>
+    <a href="#main" class="sr-only">Skip to content</a>
+    <SiteHeader />
+    <main id="main">
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>

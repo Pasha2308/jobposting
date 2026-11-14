@@ -1,0 +1,125 @@
+---
+/**
+ * Public sharing bar. Uses the real canonical URL passed by the page, never a
+ * made-up link. Clipboard/native share are progressive enhancements; LinkedIn
+ * and WhatsApp anchors work with JavaScript disabled.
+ */
+interface Props {
+  url: string;
+  title: string;
+  opportunityId?: string;
+}
+
+const { url, title, opportunityId } = Astro.props;
+const encodedUrl = encodeURIComponent(url);
+const linkedIn = `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`;
+const whatsapp = `https://wa.me/?text=${encodeURIComponent(`${title} ${url}`)}`;
+---
+
+<div class="share-bar" data-share-bar data-url={url} data-title={title} data-opportunity-id={opportunityId ?? ''}>
+  <span class="share-bar__label">Share</span>
+  <button type="button" class="btn btn--sm btn--outline" data-share-copy>
+    Copy link
+  </button>
+  <button type="button" class="btn btn--sm btn--outline" data-share-native hidden>
+    Share…
+  </button>
+  <a
+    class="btn btn--sm btn--outline"
+    href={linkedIn}
+    target="_blank"
+    rel="noopener noreferrer nofollow"
+    data-share-channel="linkedin"
+  >
+    LinkedIn
+  </a>
+  <a
+    class="btn btn--sm btn--outline"
+    href={whatsapp}
+    target="_blank"
+    rel="noopener noreferrer nofollow"
+    data-share-channel="whatsapp"
+  >
+    WhatsApp
+  </a>
+  <span class="share-bar__status" role="status" aria-live="polite"></span>
+</div>
+
+<style>
+  .share-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1rem;
+  }
+  .share-bar__label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 0.2rem;
+  }
+  .share-bar__status {
+    font-size: var(--fs-xs);
+    color: var(--success);
+  }
+</style>
+
+<script>
+  async function trackShare(channel: string, opportunityId: string) {
+    if (!opportunityId) return;
+    try {
+      await fetch('/api/public/track', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          opportunity_id: opportunityId,
+          event_type: 'share',
+          metadata: { channel },
+        }),
+        keepalive: true,
+      });
+    } catch {
+      // Analytics must never block sharing.
+    }
+  }
+
+  for (const bar of document.querySelectorAll<HTMLElement>('[data-share-bar]')) {
+    const url = bar.dataset.url ?? window.location.href;
+    const title = bar.dataset.title ?? document.title;
+    const opportunityId = bar.dataset.opportunityId ?? '';
+    const status = bar.querySelector<HTMLElement>('.share-bar__status');
+    const nativeButton = bar.querySelector<HTMLButtonElement>('[data-share-native]');
+
+    if (nativeButton && typeof navigator.share === 'function') {
+      nativeButton.hidden = false;
+      nativeButton.addEventListener('click', async () => {
+        try {
+          await navigator.share({ title, url });
+          if (status) status.textContent = 'Shared';
+          await trackShare('native', opportunityId);
+        } catch {
+          // User cancelled the native share sheet.
+        }
+      });
+    }
+
+    bar.querySelector('[data-share-copy]')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        if (status) status.textContent = 'Link copied';
+        await trackShare('copy', opportunityId);
+      } catch {
+        if (status) status.textContent = 'Copy unavailable — select the address bar';
+      }
+    });
+
+    for (const link of bar.querySelectorAll<HTMLAnchorElement>('[data-share-channel]')) {
+      link.addEventListener('click', () => {
+        void trackShare(link.dataset.shareChannel ?? 'other', opportunityId);
+      });
+    }
+  }
+</script>
