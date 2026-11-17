@@ -146,8 +146,43 @@ describe('validateExtraction', () => {
     expect(result.value.warnings).toEqual([]);
   });
 
-  it('rejects unknown enum values and missing required booleans', () => {
-    expect(validateExtraction({ ...baseExtraction, work_mode: 'teleport' }).ok).toBe(false);
+  it('normalises near-miss enum values instead of discarding the extraction', () => {
+    const result = validateExtraction({
+      ...baseExtraction,
+      work_mode: 'On-Site',
+      employment_type: 'fulltime',
+      salary_period: 'LPA',
+      application_method: 'Apply Link',
+      original_date_precision: 'day',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.work_mode).toBe('onsite');
+    expect(result.value.employment_type).toBe('full_time');
+    expect(result.value.salary_period).toBe('annual');
+    expect(result.value.application_method).toBe('external_url');
+    expect(result.value.original_date_precision).toBe('exact');
+  });
+
+  it('downgrades genuinely unknown enum values to safe defaults', () => {
+    const result = validateExtraction({
+      ...baseExtraction,
+      work_mode: 'teleport',
+      employment_type: 'freelance-ish',
+      salary_period: 'whenever',
+      application_method: 'carrier_pigeon',
+      original_date_precision: 'century',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.work_mode).toBe('unspecified');
+    expect(result.value.employment_type).toBe('unspecified');
+    expect(result.value.salary_period).toBe('unspecified');
+    expect(result.value.application_method).toBe('none');
+    expect(result.value.original_date_precision).toBe('unknown');
+  });
+
+  it('still rejects a missing required boolean and a non-object payload', () => {
     expect(validateExtraction({ ...baseExtraction, is_genuine_opportunity: 'yes' }).ok).toBe(false);
     expect(validateExtraction({ nonsense: true }).ok).toBe(false);
   });

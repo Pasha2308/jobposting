@@ -39,14 +39,14 @@ FIELD DEFINITIONS FOR EACH OPENING:
 - country: country name if explicitly stated, else null.
 - work_mode: "remote" only if explicitly remote; "hybrid" only if explicitly hybrid; "onsite" only if explicitly onsite; otherwise "unspecified".
 - employment_type: "internship" if intern/internship; "contract" if contract/freelance; "full_time" if full-time; "part_time" if part-time; otherwise "unspecified".
-- salary_min: numeric number if explicitly stated, else null.
-- salary_max: numeric number if explicitly stated, else null.
-- currency: 3-letter currency code (e.g. "INR", "USD", "EUR") or null.
-- salary_period: "annual", "monthly", "daily", "hourly", "stipend", or "unspecified".
+- salary_min: numeric number if explicitly stated, else null. Expand shorthand to the absolute amount: "12 LPA" or "12 lakhs per annum" = 1200000; "1.2 Cr" = 12000000; "50k per month" = 50000. Never store 12 for 12 LPA.
+- salary_max: numeric number if explicitly stated, else null. Apply the same expansion ("12-18 LPA" = 1200000 to 1800000).
+- currency: 3-letter currency code (e.g. "INR", "USD", "EUR") or null. Use "INR" for ₹, rupees, lakh, crore or LPA.
+- salary_period: "annual" for per annum, LPA, CTC or yearly; "monthly" for per month; "daily"; "hourly"; "stipend"; or "unspecified".
 - experience_min_years: numeric minimum years of experience if stated, else null.
 - experience_max_years: numeric maximum years of experience if stated, else null.
 - application_method: "external_url" with application URL; "email" with recruitment email; "linkedin_post" if candidates should DM or comment on post; "careers_page" if company careers page; "other" if other explicit instructions; "none" if no route.
-- recruitment_email: email address explicitly stated for applications, else null.
+- recruitment_email: email address explicitly stated for applications, else null. Only use an address when the text asks candidates to apply or send their CV to it; a general "questions" or contact address is not an application route, so leave this null.
 - application_url: explicit application link for this role, else null.
 - application_instructions: brief paraphrase of application instructions if provided, else null.
 - deadline: YYYY-MM-DD if explicitly stated, else null.

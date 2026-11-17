@@ -31,6 +31,115 @@ const stringList = (maxItems = 30, maxLen = 400) =>
     .default([]);
 
 /* -------------------------------------------------------------------------- */
+/* Tolerant enums                                                             */
+/* -------------------------------------------------------------------------- */
+/*
+ * AI providers occasionally return a near-miss enum (for example
+ * `original_date_precision: "day"`). Rejecting the whole response would discard
+ * every opening in a multi-role post, so known synonyms are normalised and
+ * unknown values fall back to a safe default instead.
+ */
+function normaliseEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  aliases: Record<string, T>,
+  fallback: T,
+): T {
+  if (typeof value !== 'string') return fallback;
+  const key = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if ((allowed as readonly string[]).includes(key)) return key as T;
+  return aliases[key] ?? fallback;
+}
+
+const WORK_MODE_ALIASES: Record<string, (typeof WORK_MODES)[number]> = {
+  wfh: 'remote',
+  work_from_home: 'remote',
+  remote_work: 'remote',
+  on_site: 'onsite',
+  in_office: 'onsite',
+  office: 'onsite',
+  not_specified: 'unspecified',
+  unknown: 'unspecified',
+};
+
+const EMPLOYMENT_TYPE_ALIASES: Record<string, (typeof EMPLOYMENT_TYPES)[number]> = {
+  fulltime: 'full_time',
+  permanent: 'full_time',
+  parttime: 'part_time',
+  intern: 'internship',
+  intern_ship: 'internship',
+  contractor: 'contract',
+  freelance: 'contract',
+  consulting: 'contract',
+  consultant: 'contract',
+  not_specified: 'unspecified',
+  unknown: 'unspecified',
+};
+
+const SALARY_PERIOD_ALIASES: Record<string, (typeof SALARY_PERIODS)[number]> = {
+  yearly: 'annual',
+  per_annum: 'annual',
+  per_year: 'annual',
+  annum: 'annual',
+  lpa: 'annual',
+  per_month: 'monthly',
+  month: 'monthly',
+  per_day: 'daily',
+  per_hour: 'hourly',
+  monthly_stipend: 'stipend',
+  not_specified: 'unspecified',
+  unknown: 'unspecified',
+};
+
+const APPLICATION_METHOD_ALIASES: Record<string, (typeof APPLICATION_METHODS)[number]> = {
+  url: 'external_url',
+  link: 'external_url',
+  external: 'external_url',
+  apply_link: 'external_url',
+  e_mail: 'email',
+  mail: 'email',
+  linkedin: 'linkedin_post',
+  dm: 'linkedin_post',
+  careers: 'careers_page',
+  company_careers: 'careers_page',
+  no_route: 'none',
+  not_specified: 'none',
+  unknown: 'none',
+};
+
+const DATE_PRECISION_ALIASES: Record<string, (typeof DATE_PRECISIONS)[number]> = {
+  day: 'exact',
+  date: 'exact',
+  full_date: 'exact',
+  exact_date: 'exact',
+  month_year: 'month',
+  year_only: 'year',
+  unspecified: 'unknown',
+  approximate: 'unknown',
+};
+
+const workModeSchema = z.preprocess(
+  (value) => normaliseEnum(value, WORK_MODES, WORK_MODE_ALIASES, 'unspecified'),
+  z.enum(WORK_MODES),
+);
+const employmentTypeSchema = z.preprocess(
+  (value) => normaliseEnum(value, EMPLOYMENT_TYPES, EMPLOYMENT_TYPE_ALIASES, 'unspecified'),
+  z.enum(EMPLOYMENT_TYPES),
+);
+const salaryPeriodSchema = z.preprocess(
+  (value) => normaliseEnum(value, SALARY_PERIODS, SALARY_PERIOD_ALIASES, 'unspecified'),
+  z.enum(SALARY_PERIODS),
+);
+const applicationMethodSchema = z.preprocess(
+  (value) => normaliseEnum(value, APPLICATION_METHODS, APPLICATION_METHOD_ALIASES, 'none'),
+  z.enum(APPLICATION_METHODS),
+);
+const datePrecisionSchema = z.preprocess(
+  (value) => normaliseEnum(value, DATE_PRECISIONS, DATE_PRECISION_ALIASES, 'unknown'),
+  z.enum(DATE_PRECISIONS),
+);
+
+/* -------------------------------------------------------------------------- */
 /* AI extraction output contract                                               */
 /* -------------------------------------------------------------------------- */
 
@@ -54,21 +163,21 @@ export const extractionSchema = z.object({
   location: z.string().max(160).nullable().optional().default(null),
   city: z.string().max(100).nullable().optional().default(null),
   country: z.string().max(100).nullable().optional().default(null),
-  work_mode: z.enum(WORK_MODES).optional().default('unspecified'),
-  employment_type: z.enum(EMPLOYMENT_TYPES).optional().default('unspecified'),
+  work_mode: workModeSchema,
+  employment_type: employmentTypeSchema,
   salary_min: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
   salary_max: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
   currency: z.string().max(8).nullable().optional().default(null),
-  salary_period: z.enum(SALARY_PERIODS).optional().default('unspecified'),
+  salary_period: salaryPeriodSchema,
   experience_min_years: z.number().min(0).max(60).nullable().optional().default(null),
   experience_max_years: z.number().min(0).max(60).nullable().optional().default(null),
-  application_method: z.enum(APPLICATION_METHODS).optional().default('none'),
+  application_method: applicationMethodSchema,
   recruitment_email: z.string().max(254).nullable().optional().default(null),
   application_url: z.string().max(1000).nullable().optional().default(null),
   application_instructions: z.string().max(1200).nullable().optional().default(null),
   deadline: z.string().max(40).nullable().optional().default(null),
   original_posted_date: z.string().max(40).nullable().optional().default(null),
-  original_date_precision: z.enum(DATE_PRECISIONS).optional().default('unknown'),
+  original_date_precision: datePrecisionSchema,
   original_date_text: z.string().max(200).nullable().optional().default(null),
   confidence: z.number().min(0).max(1).optional().default(0),
   warnings: z
@@ -101,15 +210,15 @@ export const extractionSchema = z.object({
         location: z.string().max(160).nullable().optional().default(null),
         city: z.string().max(100).nullable().optional().default(null),
         country: z.string().max(100).nullable().optional().default(null),
-        work_mode: z.enum(WORK_MODES).optional().default('unspecified'),
-        employment_type: z.enum(EMPLOYMENT_TYPES).optional().default('unspecified'),
+        work_mode: workModeSchema,
+        employment_type: employmentTypeSchema,
         salary_min: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
         salary_max: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
         currency: z.string().max(8).nullable().optional().default(null),
-        salary_period: z.enum(SALARY_PERIODS).optional().default('unspecified'),
+        salary_period: salaryPeriodSchema,
         experience_min_years: z.number().min(0).max(60).nullable().optional().default(null),
         experience_max_years: z.number().min(0).max(60).nullable().optional().default(null),
-        application_method: z.enum(APPLICATION_METHODS).optional().default('none'),
+        application_method: applicationMethodSchema,
         recruitment_email: z.string().max(254).nullable().optional().default(null),
         application_url: z.string().max(1000).nullable().optional().default(null),
         application_instructions: z.string().max(1200).nullable().optional().default(null),

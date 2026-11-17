@@ -15,11 +15,11 @@ EXTRACTION RULES:
 - Never invent or infer missing facts. Use null for missing fields and [] for missing lists.
 - Never infer location from a company's headquarters. Only use a location explicitly stated in the text.
 - Never infer salary, currency, experience, remote status, employment type or deadline.
-- Never invent a recruitment email, application URL, company website, or original posting date.
+- Never invent a recruitment email, application URL, company website, or original posting date. Only treat an email as a recruitment email when the text asks candidates to apply or send their CV to it; a general "questions" or contact address is not an application route.
 - Do not include personal phone numbers or unrelated personal information.
 - Employment type: internship only if the text says intern/internship; contract only if stated; full_time only if stated (or clearly a full-time salaried role). Otherwise "unspecified".
 - Work mode: "remote" only if explicitly remote; "hybrid" only if explicitly hybrid; "onsite" only if explicitly onsite; otherwise "unspecified".
-- Salary: numeric annual/monthly amounts only when explicitly stated. Do not convert currencies.
+- Salary: numeric amounts only when explicitly stated. Expand shorthand to the absolute amount for the stated period: "12 LPA" or "12 lakhs per annum" = 1200000 with currency "INR" and period "annual"; "1.2 Cr" = 12000000; "50k per month" = 50000 with period "monthly". Never store 12 for 12 LPA. Do not convert between currencies.
 - experience_min_years / experience_max_years: only when explicitly stated. Use numbers like 2 or 3.5.
 - application_method: external_url only with an application URL; email only with a recruitment email; careers_page only with a careers URL; linkedin_post only when the post tells candidates to apply via LinkedIn (e.g. DM, comment, or the post itself); other only when instructions exist but none of the above; none if there is no usable route.
 - application_instructions: concise paraphrase of how to apply, only if stated.

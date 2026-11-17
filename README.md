@@ -387,8 +387,12 @@ How extraction behaves:
   possible roles are never silently discarded. If the coverage call fails or the
   quota is exhausted, the successful extraction is kept.
 - The model must return strict JSON. The response is parsed and validated with
-  Zod. Unknown enums, missing required booleans, impossible dates and reversed
-  ranges are rejected or normalised.
+  Zod. Missing booleans still reject the payload, but near-miss enum values are
+  normalised (for example `day` → `exact`, `fulltime` → `full_time`) so one odd
+  field can never discard every opening in a multi-role post.
+- Salary shorthand is expanded to absolute amounts (`12–18 LPA` → `1200000`–
+  `1800000`, currency `INR`, period `annual`). A general contact address is not
+  treated as an application email.
 - Missing fields become `null` (or empty lists). The model is never asked to guess
   salary, contact details or URLs.
 - Timeouts, malformed JSON, quota errors and auth errors are mapped to safe error
