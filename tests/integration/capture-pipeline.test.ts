@@ -25,18 +25,18 @@ describe('capture pipeline', () => {
     });
 
     expect(result.genuine).toBe(true);
-    expect(result.opportunity).not.toBeNull();
-    expect(result.opportunity?.status).toBe('pending_review');
-    expect(result.opportunity?.company?.name).toBe('Acme Labs');
-    expect(result.opportunity?.category?.slug).toBe('engineering');
-    expect(result.opportunity?.source_capture_id).toBe(submitted.capture.id);
-    expect(result.opportunity?.published_at).toBeNull();
+    expect(result.opportunities[0]).not.toBeNull();
+    expect(result.opportunities[0]?.status).toBe('pending_review');
+    expect(result.opportunities[0]?.company?.name).toBe('Acme Labs');
+    expect(result.opportunities[0]?.category?.slug).toBe('engineering');
+    expect(result.opportunities[0]?.source_capture_id).toBe(submitted.capture.id);
+    expect(result.opportunities[0]?.published_at).toBeNull();
 
     expect(result.capture.status).toBe('needs_review');
-    expect(result.capture.opportunity_id).toBe(result.opportunity?.id);
+    expect(result.capture.opportunity_id).toBe(result.opportunities[0]?.id);
     expect(result.capture.attempt_count).toBe(1);
 
-    const comments = await store.listComments(result.opportunity!.id);
+    const comments = await store.listComments(result.opportunities[0]!.id);
     expect(comments).toHaveLength(3);
     expect(comments.every((comment) => comment.body.length > 0)).toBe(true);
     expect(comments.every((comment) => !comment.includes_listing_url)).toBe(true);
@@ -93,7 +93,7 @@ describe('capture pipeline', () => {
       actor: 'admin:test@example.com',
       siteUrl: SITE_URL,
     });
-    expect(retried.opportunity?.status).toBe('pending_review');
+    expect(retried.opportunities[0]?.status).toBe('pending_review');
     expect(retried.capture.status).toBe('needs_review');
     expect(retried.capture.attempt_count).toBe(2);
     expect(retried.capture.raw_text).toBe(SAMPLE_TEXT);
@@ -140,7 +140,7 @@ describe('capture pipeline', () => {
       siteUrl: SITE_URL,
     });
     expect(result.genuine).toBe(false);
-    expect(result.opportunity).toBeNull();
+    expect(result.opportunities).toEqual([]);
     expect(result.capture.status).toBe('needs_review');
     expect(store.opportunities).toHaveLength(0);
   });
@@ -176,6 +176,6 @@ describe('capture pipeline', () => {
     const purged = await store.getCapture(submitted.capture.id);
     expect(purged?.raw_text).toBe('');
     expect(purged?.extraction).toBeNull();
-    expect(purged?.source_url).toBe('https://linkedin.com/posts/1234567890');
+    expect(purged?.source_url).toBe('https://www.linkedin.com/feed/update/urn:li:activity:1234567890');
   });
 });

@@ -53,6 +53,13 @@ function text(value: unknown): string | null {
         </div>
       )}
 
+      {c.retrieval_error_code && (
+        <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
+          <strong>Retrieval: {c.retrieval_error_code.replace(/_/g, ' ')}.</strong> The original URL is preserved and the
+          capture remains reviewable. {c.next_retry_at ? `Automatic retry scheduled for ${formatDateTime(c.next_retry_at)}.` : 'Send the copied post text or retry manually.'}
+        </div>
+      )}
+
       <div class="admin-columns">
         <div class="panel">
           <div class="panel__head">
@@ -72,6 +79,13 @@ function text(value: unknown): string | null {
                   ) : 'Not specified'}
                 </span>
               </div>
+              <div class="meta-list__row"><span class="meta-list__key">Retrieval</span><span class="meta-list__val">{c.retrieval_status} {c.retrieval_method ? `via ${c.retrieval_method}` : ''}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Retrieval attempts</span><span class="meta-list__val">{c.retrieval_attempts}{c.retrieval_http_status ? ` · HTTP ${c.retrieval_http_status}` : ''}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Retrieval error</span><span class="meta-list__val mono tiny">{c.retrieval_error_code ?? 'None'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Next retry</span><span class="meta-list__val">{c.next_retry_at ? formatDateTime(c.next_retry_at) : 'Not scheduled'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Retrieved at</span><span class="meta-list__val">{c.retrieved_at ? formatDateTime(c.retrieved_at) : 'Not retrieved'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Source author</span><span class="meta-list__val">{c.source_author ?? 'Not available'}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Post published</span><span class="meta-list__val">{c.source_posted_at ? formatDateTime(c.source_posted_at) : 'Not available'}</span></div>
               <div class="meta-list__row"><span class="meta-list__key">Company hint</span><span class="meta-list__val">{c.submitted_company ?? 'Not specified'}</span></div>
               <div class="meta-list__row"><span class="meta-list__key">Submitted by</span><span class="meta-list__val">{c.created_by ?? 'Unknown'}</span></div>
               <div class="meta-list__row"><span class="meta-list__key">Telegram user</span><span class="meta-list__val">{c.telegram_user_id ?? 'Not via Telegram'}</span></div>
@@ -112,6 +126,11 @@ function text(value: unknown): string | null {
             )}
 
             <div class="stack-sm" style="margin-top:1rem">
+              {['retrieval_failed', 'awaiting_text', 'retrieving'].includes(c.status) && (
+                <button class="btn btn--outline btn--block" type="button" data-capture-action="retry_retrieval">
+                  <Icon name="refresh" size={14} /> Retry retrieval
+                </button>
+              )}
               <button class="btn btn--outline btn--block" type="button" data-capture-action="retry">
                 <Icon name="refresh" size={14} /> Retry extraction
               </button>
@@ -135,6 +154,36 @@ function text(value: unknown): string | null {
           </div>
         </div>
       </div>
+
+      {c.source_comments && c.source_comments.length > 0 && (
+        <div class="panel" style="margin-top:1.5rem">
+          <div class="panel__head">
+            <span class="panel__title"><Icon name="message" size={14} /> Source comments</span>
+            <span class="badge">Private</span>
+          </div>
+          <div class="panel__body">
+            <p class="tiny muted" style="margin-bottom:0.75rem">
+              Comments are stored because role-specific application links often appear only here. They are never shown
+              publicly and are purged after the retention window.
+            </p>
+            <div class="stack-sm">
+              {c.source_comments.map((comment) => (
+                <div class="notice">
+                  <strong>{comment.is_author ? 'Author' : (comment.author ?? 'Commenter')}</strong>
+                  <p style="margin-top:0.35rem;white-space:pre-line">{comment.text}</p>
+                  {comment.links.length > 0 && (
+                    <div style="margin-top:0.5rem">
+                      {comment.links.map((link) => (
+                        <a href={link} target="_blank" rel="noopener noreferrer nofollow" class="tiny">{link}</a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div class="panel" style="margin-top:1.5rem">
         <div class="panel__head">
@@ -215,10 +264,22 @@ function text(value: unknown): string | null {
       if (action === 'retry' && !window.confirm('Retry extraction? This uses the configured AI provider again.')) {
         return;
       }
+      if (action === 'retry_retrieval') {
+        const authorised = window.confirm(
+          'Retry retrieval of the original URL? This only runs an authorised retrieval adapter; it never uses your LinkedIn session.',
+        );
+        if (!authorised) return;
+      }
       if (statusBox) statusBox.hidden = true;
       if (errorBox) errorBox.hidden = true;
       button.setAttribute('disabled', 'true');
-      status(action === 'retry' ? 'Retrying extraction…' : 'Updating capture…');
+      status(
+        action === 'retry'
+          ? 'Retrying extraction…'
+          : action === 'retry_retrieval'
+            ? 'Retrying retrieval…'
+            : 'Updating capture…',
+      );
 
       const note = document.querySelector<HTMLTextAreaElement>('#reject-note')?.value ?? '';
       try {
@@ -228,14 +289,28 @@ function text(value: unknown): string | null {
           body: JSON.stringify({ action, note }),
         });
         const result = (await response.json().catch(() => null)) as
-          | { ok?: boolean; captureStatus?: string; opportunityId?: string | null; reviewUrl?: string; error?: string; warnings?: string[] }
+          | {
+              ok?: boolean;
+              retrieved?: boolean;
+              captureStatus?: string;
+              opportunityId?: string | null;
+              reviewUrl?: string;
+              message?: string;
+              error?: string;
+              warnings?: string[];
+            }
           | null;
         if (!response.ok || !result) {
           error((result as { error?: string } | null)?.error ?? 'The action failed.');
           button.removeAttribute('disabled');
           return;
         }
-        if (action === 'retry' && result.opportunityId) {
+        if (action === 'retry_retrieval' && result.retrieved === false) {
+          error(result.message ?? 'Retrieval did not succeed. The URL is still preserved.');
+          button.removeAttribute('disabled');
+          return;
+        }
+        if ((action === 'retry' || action === 'retry_retrieval') && result.opportunityId) {
           window.location.href = result.reviewUrl ?? `/admin/opportunities/${result.opportunityId}`;
           return;
         }

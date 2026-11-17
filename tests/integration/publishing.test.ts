@@ -16,7 +16,8 @@ async function createPending(overrides: Record<string, unknown> = {}) {
     actor: 'admin:test@example.com',
     siteUrl: SITE_URL,
   });
-  return { store, opportunity: result.opportunity!, captureId: submitted.capture.id };
+  // ProcessCaptureResult now has opportunities[] array.
+  return { store, opportunity: result.opportunities[0]!, captureId: submitted.capture.id };
 }
 
 describe('publication', () => {

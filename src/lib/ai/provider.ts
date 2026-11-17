@@ -4,16 +4,32 @@
  * `createAIProvider`. Nothing else in the app depends on Gemini specifics.
  */
 
+import type { SourceComment } from '../domain/types';
+
 export type ExtractionRequest = {
   sourceText: string;
   sourceUrl: string | null;
   submittedCompany: string | null;
   categorySlugs: { slug: string; name: string }[];
+  /** Retrieved provenance, when available. The source text already includes it. */
+  sourceMeta?: {
+    author: string | null;
+    postedAt: string | null;
+    headline: string | null;
+    comments: SourceComment[];
+    hasSharedContent: boolean;
+  } | null;
 };
 
 export interface AIProvider {
   readonly name: string;
   extract(request: ExtractionRequest): Promise<unknown>;
+  /**
+   * Optional cheap second call that lists every role title mentioned in the
+   * source. Used to flag coverage gaps on multi-opening posts. Providers may
+   * omit it; extraction must never fail because coverage checking is missing.
+   */
+  listRoles?(request: ExtractionRequest): Promise<string[]>;
 }
 
 export type AIErrorKind =

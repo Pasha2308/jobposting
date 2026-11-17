@@ -3,8 +3,8 @@
 **Discover opportunities. Connect with builders. Start building.**
 
 A curated startup opportunity platform for the Hustler Community: a fast public
-directory, a private admin workspace, a Gemini-powered capture pipeline and a
-Telegram bot that turns a pasted LinkedIn post into a reviewed listing.
+directory, a private admin workspace, a Groq-powered capture pipeline and a
+Telegram bot that turns one LinkedIn post URL into individually reviewed listings.
 
 This is not a generic job board. Every listing is tied to a real source, is
 reviewed by a human before publication, and clearly separates source-supplied
@@ -67,14 +67,16 @@ There are no demo jobs in production.
   close, reopen, expire, archive, restore, reject and delete, with destructive
   confirmation and safe bulk actions.
 - Pending review queue with a review link for every draft.
-- Capture engine: source URL + pasted text (+ optional company, notes and source
-  type), explicit pipeline states, retry on failure, preserved source on failure.
+- Capture engine: URL-first LinkedIn ingestion, saved before any network call,
+  with authorised retrieval when enabled, copied-text fallback, explicit retrieval
+  and extraction states, retry on failure and preserved source on every failure.
 - Duplicate protection: canonical source URL, LinkedIn activity ID, source post
   ID, existing application URL and similar role/company/date detection. Exact
   duplicates are blocked; potential duplicates are flagged and never auto-merged.
-- AI extraction: Gemini through a server-side provider abstraction, Zod-validated
-  JSON, nulls for absent fields, hardened prompt with untrusted source
-  delimiters, retry/timeout/quota handling and no duplicate AI processing.
+- AI extraction: Groq (Gemini remains available) through a server-side provider
+  abstraction, Zod-validated JSON, nulls for absent fields, hardened prompt with
+  untrusted source delimiters, retry/timeout/quota handling, per-role opening keys
+  and optional coverage checking for long multi-role posts.
 - Comments: professional, community-focused and short/conversational variants
   generated only from reviewed fields. Copy, edit, regenerate with version
   history, and manual-posted tracking. No listing URL before publication. No
@@ -90,10 +92,16 @@ There are no demo jobs in production.
 
 ### Telegram capture bot
 
-- Official Telegram Bot API only. No LinkedIn scraping or browser automation.
-- Owner sends a public post URL plus the copied post text; the bot validates the
-  sender, normalises and deduplicates the URL, saves the capture, runs Gemini,
-  generates comments and previews the draft.
+- Official Telegram Bot API only. No LinkedIn session cookies, proxy rotation,
+  CAPTCHA solving or browser automation are used anywhere in the codebase.
+- **URL-first:** the owner sends one LinkedIn post URL. The bot acknowledges it,
+  saves the URL before any network call, retrieves the post through an authorised
+  adapter, extracts every opening separately, and previews each draft.
+- If the post cannot be retrieved through an authorised method, the URL is kept,
+  the exact reason is recorded, the capture stays visible in the admin workspace,
+  and the bot asks once for the copied post text (manual fallback).
+- URL plus copied text in one message still works and is the fallback whenever
+  retrieval is unavailable or not authorised.
 - Inline buttons: **Approve & Publish**, **Save Draft**, **Reject**,
   **Regenerate Comment**, **Open Admin Review**.
 - Webhook secret verification, numeric user-ID allowlist, update-ID deduplication,
@@ -120,8 +128,8 @@ There are no demo jobs in production.
 
 ```
                         ┌──────────────────────────────┐
-  Public visitor ──────▶│  Astro SSR on Cloudflare      │
-                        │  Pages (official adapter)     │
+  Public visitor ──────▶│  Astro SSR on Vercel          │
+                        │  (official adapter)           │
   Admin (browser) ─────▶│                              │
                         │  Public pages · Admin pages   │
   Telegram ────────────▶│  API routes (server only)     │
@@ -130,7 +138,7 @@ There are no demo jobs in production.
                  ┌─────────────────────┼──────────────────────┐
                  ▼                     ▼                      ▼
         ┌────────────────┐   ┌──────────────────┐   ┌─────────────────┐
-        │ Supabase       │   │ Gemini API       │   │ Telegram Bot    │
+        │ Supabase       │   │ Groq API         │   │ Telegram Bot    │
         │ Postgres +     │   │ (server-side     │   │ API (official)  │
         │ Auth + RLS     │   │ extraction)      │   │                 │
         └────────────────┘   └──────────────────┘   └─────────────────┘
@@ -139,10 +147,11 @@ There are no demo jobs in production.
 Request flow for a capture:
 
 ```
-Public URL + pasted text
-  → submitCapture (validate, normalise, dedupe, persist)
-  → processCapture (claim, Gemini, Zod validation, mapping)
-  → draft opportunity in Pending review
+One LinkedIn post URL
+  → ingestLinkedInUrl (validate, normalise, dedupe, persist the URL first)
+  → authorised retrieval (or manual copied text when unavailable)
+  → processCapture (claim, Groq, Zod validation, per-opening mapping)
+  → one draft opportunity per opening in Pending review
   → admin / Telegram review
   → publishOpportunity (revalidate, publish gate, timestamps, comments)
   → public listing
@@ -153,17 +162,17 @@ Public URL + pasted text
 | Layer | Choice |
 | --- | --- |
 | Framework | Astro 5.18 with `output: 'server'` |
-| Adapter | `@astrojs/cloudflare` 12.6 (Cloudflare Pages) |
+| Adapter | `@astrojs/vercel` 8.2 (Vercel serverless) |
 | Interactive UI | React 19.2 islands (opportunity editor, comment studio) |
 | Language | TypeScript |
 | Database + auth | Supabase Postgres, Supabase Auth |
-| AI | Google Gemini via a provider abstraction (`AIProvider`) |
+| AI | Groq (`openai/gpt-oss-120b` by default) through the `AIProvider` abstraction; Gemini remains available |
 | Bot | Telegram Bot API (webhook) |
 | Styling | One global design-token stylesheet, Space Grotesk |
 | Validation | Zod |
 | Unit/integration tests | Vitest |
 | E2E | Playwright (desktop + mobile Chromium) |
-| Deployment | Cloudflare Pages, GitHub Actions CI |
+| Deployment | Vercel, GitHub Actions CI |
 
 No Kubernetes, Redis, Celery, microservices, vector database or separate backend.
 Server-side business logic lives in `src/lib`, shared by pages, API routes and the
@@ -181,11 +190,12 @@ Telegram webhook.
 │   │   └── admin/                React islands (editor, comment studio)
 │   ├── layouts/                  PublicLayout, AdminLayout
 │   ├── lib/
-│   │   ├── ai/                   AIProvider interface + Gemini provider
+│   │   ├── ai/                   AIProvider interface + Groq/Gemini providers
 │   │   ├── domain/               Types, lifecycle, validation, duplicates,
-│   │   │                         comments, URL/format/icon helpers
-│   │   ├── services/             Capture, publishing, comments, public,
-│   │   │                         admin-opportunity, shared context
+│   │   │                         comments, completeness, URL/format helpers
+│   │   ├── linkedin/             Gated retrieval adapters, URL guards, JSON-LD parser
+│   │   ├── services/             Capture, URL-first ingestion, publishing,
+│   │   │                         comments, public, admin-opportunity, context
 │   │   ├── store/                Store contract, Supabase + in-memory stores
 │   │   ├── telegram/             Bot API client + update/callback service
 │   │   ├── auth.ts               HttpOnly admin sessions
@@ -199,6 +209,10 @@ Telegram webhook.
 ├── supabase/
 │   ├── migrations/0001_init.sql  Schema, enums, indexes, triggers, RLS
 │   ├── migrations/0002_seed.sql  Categories + default settings
+│   ├── migrations/0003_multi_opening.sql  Opening keys + publication numbering
+│   ├── migrations/0004_capture_retrieval_enum.sql  Retrieval statuses
+│   ├── migrations/0005_capture_retrieval_columns.sql  Retrieval + quality fields
+│   ├── migrations/0006_retrieval_queue.sql  Atomic retry claim RPC
 │   └── seed/first_admin.example.sql
 ├── tests/
 │   ├── unit/                     Pure-domain tests
@@ -212,7 +226,7 @@ Telegram webhook.
 ├── eslint.config.js
 ├── playwright.config.ts
 ├── vitest.config.ts
-├── wrangler.toml
+├── vercel.json                   Cron schedule + security headers
 └── package.json
 ```
 
@@ -225,7 +239,7 @@ Telegram webhook.
 - Node.js **20.19+** (developed on Node 24)
 - npm 10+
 - A Supabase project (free tier is enough)
-- Optional: Gemini API key, Telegram bot token, Turnstile keys
+- Optional: Groq API key, Telegram bot token, Turnstile keys
 
 ### Steps
 
@@ -253,14 +267,14 @@ honest empty states and configuration notices; they never fabricate listings.
 | `npm test` | Vitest unit + integration suite |
 | `npm run test:watch` | Vitest watch mode |
 | `npm run e2e` | Playwright public journeys (desktop + mobile) |
-| `npm run deploy` | Build and deploy with Wrangler to Cloudflare Pages |
+| `npm run deploy` | Build and deploy with Astro to Vercel |
 | `npm run db:push` | Reminder: apply SQL migrations in Supabase |
 
 ---
 
 ## Environment variables
 
-Copy `.env.example` to `.env`. On Cloudflare Pages, set the same keys under
+Copy `.env.example` to `.env`. On Vercel, set the same keys under Project Settings → Environment Variables.
 **Settings → Environment variables** (Production and Preview). Never commit a real
 `.env`.
 
@@ -270,19 +284,24 @@ Copy `.env.example` to `.env`. On Cloudflare Pages, set the same keys under
 | `SUPABASE_URL` | Yes | Server | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Yes | Server | Used only server-side for password sign-in and token refresh |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | **Server secret** | Server-side data access. Never exposed to the browser |
-| `AI_PROVIDER` | No | Server | `gemini` (default) or `none` to disable extraction explicitly |
-| `GEMINI_API_KEY` | Recommended | **Server secret** | Gemini API key |
+| `AI_PROVIDER` | No | Server | `groq` (recommended), `gemini`, or `none` to disable extraction explicitly |
+| `GROQ_API_KEY` | Recommended | **Server secret** | Groq API key |
+| `GROQ_MODEL` | No | Server | Default `openai/gpt-oss-120b` |
+| `GEMINI_API_KEY` | Optional | **Server secret** | Only when `AI_PROVIDER=gemini` |
 | `GEMINI_MODEL` | No | Server | Default `gemini-2.5-flash` |
 | `TELEGRAM_BOT_TOKEN` | Optional | **Server secret** | Token from BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | Optional | **Server secret** | Random string; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token` |
 | `TELEGRAM_ADMIN_USER_IDS` | Optional | Server | Comma-separated numeric Telegram user IDs allowed to use the bot |
+| `LINKEDIN_JSONLD_RETRIEVAL_ENABLED` | No | Server | `false` by default. Enables the isolated public JSON-LD adapter |
+| `LINKEDIN_RETRIEVAL_AUTHORISED` | No | Server | `false` by default. Set only when legal/contractual authorisation exists |
+| `CRON_SECRET` | Recommended | **Server secret** | Bearer secret for `/api/cron/retry-retrievals`; Vercel Cron sends it automatically |
 | `PUBLIC_TURNSTILE_SITE_KEY` | Optional | Public | Turnstile site key |
 | `TURNSTILE_SECRET_KEY` | Optional | **Server secret** | Turnstile secret key |
 
 The app degrades gracefully: missing Supabase means the admin workspace reports
-that it is not configured; missing Gemini preserves captures for retry; missing
-Telegram disables capture registration; missing Turnstile skips that check. It
-never simulates a successful integration.
+that it is not configured; missing Groq/Gemini preserves captures for retry;
+missing Telegram disables capture registration; missing Turnstile skips that
+check. It never simulates a successful integration.
 
 `GET /api/health` returns a `configured` object showing which integrations are
 present (booleans only, no secrets).
@@ -295,6 +314,10 @@ present (booleans only, no secrets).
 2. Open **SQL Editor** and run, in order:
    - `supabase/migrations/0001_init.sql`
    - `supabase/migrations/0002_seed.sql`
+   - `supabase/migrations/0003_multi_opening.sql`
+   - `supabase/migrations/0004_capture_retrieval_enum.sql`
+   - `supabase/migrations/0005_capture_retrieval_columns.sql`
+   - `supabase/migrations/0006_retrieval_queue.sql`
 3. Copy from **Project Settings → API**:
    - Project URL → `SUPABASE_URL`
    - `anon` public key → `SUPABASE_ANON_KEY`
@@ -344,19 +367,25 @@ database is live.
 
 ---
 
-## Gemini configuration
+## AI configuration (Groq by default)
 
-1. Create an API key in Google AI Studio.
-2. Set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` (default
-   `gemini-2.5-flash`).
-3. Keep `AI_PROVIDER=gemini`. Set it to `none` to disable extraction and work
-   manually.
+1. Create an API key in the Groq console.
+2. Set `GROQ_API_KEY` and optionally `GROQ_MODEL` (default
+   `openai/gpt-oss-120b`).
+3. Keep `AI_PROVIDER=groq`. Set it to `none` to disable extraction and work
+   manually. `AI_PROVIDER=gemini` with `GEMINI_API_KEY` remains supported.
 
 How extraction behaves:
 
 - The source text is wrapped in explicit untrusted-content delimiters and the
   system instruction says to treat it as data, never as instructions. This is
   prompt-injection resistant by design.
+- One post can contain many roles. The model returns an `openings` array and each
+  distinct role becomes its own opportunity with its own application route.
+- For longer posts (four or more extracted openings) an optional second, cheap
+  call lists every role mentioned. A mismatch is surfaced as a review warning;
+  possible roles are never silently discarded. If the coverage call fails or the
+  quota is exhausted, the successful extraction is kept.
 - The model must return strict JSON. The response is parsed and validated with
   Zod. Unknown enums, missing required booleans, impossible dates and reversed
   ranges are rejected or normalised.
@@ -365,12 +394,9 @@ How extraction behaves:
 - Timeouts, malformed JSON, quota errors and auth errors are mapped to safe error
   messages. The capture is preserved with status `extraction_failed` and can be
   retried.
-- A capture is only extracted once at a time; retries are explicit.
-- Non-vacancy posts are held for review instead of producing a fabricated role.
-
-The provider interface lives in `src/lib/ai/provider.ts`; Gemini is one
-implementation in `src/lib/ai/gemini.ts`. Swapping providers does not touch the
-capture service.
+- A deterministic completeness score and missing-field flags are computed from the
+  persisted fields after extraction. They are advisory and admin-only; they do not
+  bypass the publication gate.
 
 ---
 
@@ -399,45 +425,88 @@ capture service.
          "allowed_updates": ["message", "callback_query"]
        }'
      ```
-6. Send the bot a public post URL and the copied post text. Use **Admin → Settings
-   → Check status** to inspect `getWebhookInfo`.
+6. Send the bot one LinkedIn post URL. It acknowledges the submission, saves the
+   URL, retrieves the post when an authorised adapter is enabled, and previews
+   every extracted opening. If retrieval is unavailable, send the copied post
+   text once. Use **Admin → Settings → Check status** to inspect `getWebhookInfo`.
 
 Webhook endpoint: `POST /api/telegram/webhook`. It returns `503` when Telegram is
 not configured, `403` for a bad secret, `400` for malformed updates, and
-acknowledges callbacks. The bot does not scrape LinkedIn: it only reads the text
-the owner pastes.
+acknowledges callbacks. The bot never uses your LinkedIn session, CAPTCHA
+bypasses, proxy rotation or a third-party scraping provider.
+
+### URL-first ingestion and LinkedIn authorisation
+
+The retrieval layer is modular (`src/lib/linkedin/`):
+
+- **Default state:** automatic LinkedIn retrieval is **disabled**.
+  `LINKEDIN_JSONLD_RETRIEVAL_ENABLED` and `LINKEDIN_RETRIEVAL_AUTHORISED` must
+  both be `true` before the public JSON-LD adapter can make any request.
+- The adapter sends no cookies, does not spoof a browser, follows no redirect
+  outside LinkedIn, and stops on an authwall or rate limit instead of trying to
+  bypass it. It has a timeout, response-size cap and SSRF/allowlist guards.
+- Do not enable the flags unless you have legal/contractual authorisation to
+  retrieve LinkedIn post pages. Public accessibility is not the same as permission.
+- When retrieval is disabled or fails, the submitted URL is always preserved. The
+  capture records `retrieval_status`, `retrieval_error_code`, HTTP status, attempt
+  count and the next retry time. A failed capture stays visible and recoverable in
+  **Admin → Captures**, with **Retry retrieval** and **Retry extraction** actions.
+- Transient failures (timeout, network, 429, 5xx) are retried automatically with
+  backoff, up to three retries after the first attempt. Access blocks
+  (`login_required`) and missing content are not retried and request manual text.
+- Raw source text, comments and retrieval metadata are retained for 90 days, then
+  purged by the recovery job while the opportunity records and source references
+  remain.
+
+### Recovery cron
+
+`GET /api/cron/retry-retrievals` requires `Authorization: Bearer $CRON_SECRET`.
+It recovers captures stuck in `retrieving` or `extracting`, claims due retries
+atomically with `FOR UPDATE SKIP LOCKED`, and runs the 90-day retention purge.
+`vercel.json` schedules it once daily (`0 3 * * *`), which is the supported
+frequency on the Vercel Hobby plan. On Pro, change the schedule to run more often.
+The endpoint returns `401` when `CRON_SECRET` is unset, so it can never be
+triggered publicly.
 
 ---
 
-## Cloudflare Pages deployment
+## Vercel deployment
 
-1. Push the repository to GitHub.
-2. In Cloudflare **Workers & Pages → Create → Pages → Connect to Git**, choose the
-   repository and the `main` branch.
-3. Build settings:
-   - Framework preset: **Astro**
-   - Build command: `npm run build`
-   - Build output directory: `dist`
-   - Node version: `20.19` or newer (`NODE_VERSION=22` is a safe choice)
-4. Add the environment variables from the table above for **Production** (and
-   **Preview** if you want preview deployments to work).
-5. Deploy. The official `@astrojs/cloudflare` adapter produces the Pages output.
-6. Set `PUBLIC_SITE_URL` to the final Pages URL (or custom domain) and redeploy so
-   canonical links, sitemap and Telegram links are correct.
-7. Optional: register the Telegram webhook after the first successful deploy.
+1. Push the repository to GitHub (`main`).
+2. In Vercel, **Add New → Project** and import the repository.
+3. The project builds with `npm run build` and the `@astrojs/vercel` adapter. Node
+   22 is the runtime Vercel uses even if your local Node is newer.
+4. Add every variable from the table above for **Production** (and **Preview** if
+   needed). Production requires at least `PUBLIC_SITE_URL`, `SUPABASE_URL`,
+   `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AI_PROVIDER=groq`,
+   `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
+   `TELEGRAM_ADMIN_USER_IDS` and `CRON_SECRET`.
+5. Set `PUBLIC_SITE_URL` to the final `https://<project>.vercel.app` origin (or
+   custom domain) and redeploy so canonical links, sitemap and Telegram links are
+   correct.
+6. Register the Telegram webhook with the deployed origin:
+   `https://<project>.vercel.app/api/telegram/webhook`, or use **Admin → Settings
+   → Register webhook**.
+7. `vercel.json` registers the daily recovery cron. Vercel sends
+   `Authorization: Bearer $CRON_SECRET` automatically when `CRON_SECRET` exists on
+   the project.
 
-The app does not require a custom domain. Set `PUBLIC_SITE_URL` to the
-`*.pages.dev` URL if you are not using one.
+CLI deployment:
 
-Manual deploy with Wrangler:
+```bash
+npx vercel login
+npx vercel link
+npx vercel --prod
+```
+
+Local build check:
 
 ```bash
 npm run build
-npx wrangler pages deploy dist
 ```
 
-`wrangler.toml` contains the project name, compatibility date and public site URL
-only. Secrets belong in the Pages dashboard, never in `wrangler.toml`.
+The build output is `.vercel/output` for the Vercel adapter. Do not commit `.env`
+or `.vercel/`.
 
 ### GitHub deployment
 
@@ -467,8 +536,12 @@ npm test
 Covers URL normalisation and slugging, duplicate detection and canonical source
 keys, AI output validation, publication and application-route rules, category and
 company validation, date normalisation, lifecycle transitions, comment safety and
-versioning, the capture pipeline, failed-AI retry, publishing, Telegram update
-dedupe/allowlist/callbacks, reports, public submissions and click tracking.
+versioning, the capture pipeline, multi-opening extraction (1, 3 and 5+ roles),
+coverage mismatches, retrieval guards/redirects/timeouts/size caps, JSON-LD parsing
+(reposts, comments, malformed blocks), URL-first ingestion and manual fallback,
+retry claims and stale recovery, completeness scoring, admin session/allowlist
+rules, failed-AI retry, publishing, Telegram update dedupe/allowlist/callbacks,
+reports, public submissions and click tracking.
 
 The suite uses `MemoryStore`, a complete in-memory implementation of the `Store`
 contract, so workflows run without credentials. Production uses `SupabaseStore`
@@ -510,10 +583,11 @@ listing in public search, D sharing and click tracking, E public report →
 resolution, F close preserves the page but removes it from search, G Telegram
 webhook rejects a bad secret/malformed update, H duplicate source is blocked.
 
-> The integrations are implemented but were **not live-verified** in the delivery
-> environment because no Supabase, Gemini, Telegram or Turnstile credentials were
-> supplied. Unit/integration tests use the in-memory store and a fake AI provider.
-> Run the authenticated E2E suite against your project before going live.
+> Unit/integration tests use the in-memory store and a fake AI provider, so they
+> need no credentials. Run the authenticated E2E suite against a seeded Supabase
+> project before going live. Live integration checks (Supabase schema, Groq model,
+> Telegram bot identity and webhook, Vercel linkage) must be repeated after
+> deployment; the repository cannot verify them on its own.
 
 ---
 
@@ -524,14 +598,16 @@ webhook rejects a bad secret/malformed update, H duplicate source is blocked.
 | Public pages show “not configured” notices | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set on the running environment |
 | Admin login says the account is not authorised | The user exists in Supabase Auth **and** has an active row in `admin_profiles` |
 | Login succeeds but redirects back | Cookies blocked, wrong `PUBLIC_SITE_URL`, or the project URL/anon key is wrong |
-| Capture never extracts | `AI_PROVIDER=gemini` and `GEMINI_API_KEY` are set; check the capture's error and retry |
-| Gemini returns quota errors | Free-tier quota or billing; the capture is preserved and can be retried later |
+| Capture never extracts | `AI_PROVIDER=groq` and `GROQ_API_KEY` are set; check the capture's error and retry |
+| Groq returns quota errors | Free-tier quota or billing; the capture is preserved and can be retried later |
 | Telegram webhook never fires | Webhook URL is publicly reachable over HTTPS, `TELEGRAM_WEBHOOK_SECRET` matches, and your user ID is in `TELEGRAM_ADMIN_USER_IDS` |
 | Telegram says “not configured” | All three Telegram variables are set and the site was redeployed |
 | Publish is blocked | At least one usable application route is required; check the blocking list in the editor |
-| Build fails on Cloudflare | `npm run build` locally, confirm `NODE_VERSION=22`, and re-check the Pages output directory is `dist` |
+| Build fails on Vercel | `npm run build` locally; Vercel uses Node 22 even if local Node is newer |
 | E2E can't start Chromium | `npx playwright install chromium` |
-| Migration rejected | Run `0001_init.sql` before `0002_seed.sql` on a fresh database |
+| Migration rejected | Run `0001_init.sql` through `0006_retrieval_queue.sql` in order on a fresh database |
+| LinkedIn URL saved but extraction does not run | Retrieval is disabled by default. Send the copied post text, or enable both retrieval flags only when authorised |
+| Recovery cron returns 401 | `CRON_SECRET` is unset on the project; set it and redeploy |
 
 ---
 
@@ -567,9 +643,9 @@ webhook rejects a bad secret/malformed update, H duplicate source is blocked.
 
 | Service | Free tier | Practical limit |
 | --- | --- | --- |
-| Cloudflare Pages | Generous static/SSR request allowance | Fine for a community directory; watch Workers invocations on viral traffic |
+| Vercel Hobby | Personal projects; one cron run per day | Fine for this workload; Pro allows frequent recovery runs |
 | Supabase Free | 500 MB database, 50k MAU auth, pauses after inactivity | Enough for thousands of listings; raw source retention keeps text bounded |
-| Gemini free tier | Rate-limited requests | Capture is human-triggered, not bulk; failures are retried manually |
+| Groq free tier | Rate-limited requests | Capture is human-triggered, not bulk; failures stay queued for retry |
 | Telegram Bot API | Free | No message-volume cost |
 | Cloudflare Turnstile | Free | Optional; forms still have honeypot + rate limiting |
 | GitHub Actions | Free minutes for public repos | CI runs lint/check/test/build plus public E2E |
@@ -581,9 +657,11 @@ states instead of fabricated content.
 ### Data retention
 
 `source_retention_days` (default 180) controls how long raw capture text is kept.
-Use **Admin → Settings → Source retention → Purge expired source text** to clear
-raw text and stored extraction payloads older than the window. Reviewed listing
-fields are not modified. The purge is logged to `activity_logs`.
+Link-ingestion captures follow the operational rule of 90 days: the daily recovery
+job purges raw text, stored extraction payloads, source comments and retrieval
+metadata older than 90 days, leaving the reviewed opportunity rows and source
+references intact. Use **Admin → Settings → Source retention → Purge expired source
+text** for a manual purge. Both paths are logged to `activity_logs`.
 
 ---
 
@@ -597,12 +675,20 @@ and accessibility rules. Official assets live in `public/brand/`.
 
 ## Known limitations
 
-- Live integrations (Supabase, Gemini, Telegram, Turnstile) are implemented but
-  were not exercised against real credentials in this delivery environment.
-- Authenticated E2E workflows A–H are authored but skipped without credentials.
+- URL-only LinkedIn retrieval is implemented but **disabled by default** pending
+  legal/contractual authorisation. Until both retrieval flags are enabled, a
+  LinkedIn URL is preserved and the bot asks for the copied post text.
+- Restricted or sign-in-only posts cannot be retrieved without the prohibited use
+  of a personal LinkedIn session. They always fall back to manual text.
+- Image-only posts expose no public text; they are reported as `no_content` rather
+  than guessed.
+- Vercel Hobby allows one cron run per day. Frequent automatic retries require Pro
+  or a manual **Retry retrieval** from the admin workspace.
 - ATS sync (`company_sources`) is schema-ready but intentionally not automated;
   there is no ATS integration UI yet.
-- The in-isolate rate limiter is per Cloudflare isolate. For strict global limits,
+- The in-process rate limiter is per serverless instance. For strict global limits,
   move the counters to a shared store (e.g. a Postgres table or KV).
 - No custom domain is required; if you add one, update `PUBLIC_SITE_URL` and
   redeploy.
+- New extraction fields (education, benefits, languages, recruiter, completeness
+  flags) are admin-only and are not rendered on public listing pages.

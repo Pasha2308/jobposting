@@ -21,8 +21,9 @@ async function publishedOpportunity() {
     actor: 'admin:test@example.com',
     siteUrl: SITE_URL,
   });
-  await publishOpportunity(store, processed.opportunity!.id, 'admin:test@example.com', SITE_URL);
-  return { store, opportunity: processed.opportunity! };
+  // ProcessCaptureResult now has opportunities[] array; use the first opening.
+  await publishOpportunity(store, processed.opportunities[0]!.id, 'admin:test@example.com', SITE_URL);
+  return { store, opportunity: processed.opportunities[0]! };
 }
 
 describe('public submissions', () => {

@@ -39,6 +39,9 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Verify Vercel configuration
+        run: node -e "const cfg = require('./vercel.json'); if (!Array.isArray(cfg.crons) || cfg.crons.length === 0) { throw new Error('vercel.json must declare the recovery cron'); } console.log('vercel.json OK:', cfg.crons.map((c) => c.path + ' @ ' + c.schedule).join(', '));"
+
       - name: Upload build output on failure
         if: failure()
         uses: actions/upload-artifact@v4

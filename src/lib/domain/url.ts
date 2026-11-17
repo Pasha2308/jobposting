@@ -74,7 +74,9 @@ export function normalizeSourceUrl(input: string | null | undefined): string | n
 
   if (url.hostname === 'linkedin.com' || url.hostname.endsWith('.linkedin.com')) {
     const postId = extractLinkedInPostId(url);
-    if (postId) return `https://linkedin.com/posts/${postId}`;
+    // `/posts/<id>` returns an empty page; the feed-update URN is the URL that
+    // actually exposes public post content, so it is the canonical stored form.
+    if (postId) return canonicalLinkedInPostUrl(postId);
   }
 
   let pathname = url.pathname.replace(/\/+$/, '');
@@ -114,6 +116,26 @@ function safePath(value: string): string | null {
 export function canonicalSourceKey(sourceUrl: string | null, sourcePostId: string | null): string | null {
   if (sourcePostId) return `linkedin:${sourcePostId}`;
   return normalizeSourceUrl(sourceUrl);
+}
+
+/** Canonical public URL for a LinkedIn activity id. */
+export function canonicalLinkedInPostUrl(postId: string): string {
+  return `https://www.linkedin.com/feed/update/urn:li:activity:${postId}`;
+}
+
+export function isLinkedInHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  return host === 'linkedin.com' || host === 'www.linkedin.com' || host === 'm.linkedin.com' || host === 'lnkd.in';
+}
+
+export function isLinkedInPostUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return isLinkedInHost(url.hostname) && extractLinkedInPostId(url) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function slugify(input: string): string {

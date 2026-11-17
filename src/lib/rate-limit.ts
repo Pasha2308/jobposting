@@ -1,8 +1,8 @@
 /**
- * Small in-isolate rate limiter for public write endpoints. Cloudflare may run
- * several isolates, so this is defence in depth rather than a hard quota. No
- * IP is ever persisted; the key lives in memory only and expires with the
- * window. For stricter limits, attach Cloudflare Turnstile (supported).
+ * Small in-instance rate limiter for public write endpoints. Serverless hosting
+ * may run several instances, so this is defence in depth rather than a hard
+ * quota. No IP is ever persisted; the key lives in memory only and expires with
+ * the window. For stricter limits, attach Cloudflare Turnstile (supported).
  */
 type Bucket = { count: number; resetAt: number };
 

@@ -25,7 +25,7 @@ describe('normalizeSourceUrl', () => {
     ];
     const normalized = variants.map((url) => normalizeSourceUrl(url));
     expect(new Set(normalized).size).toBe(1);
-    expect(normalized[0]).toBe('https://linkedin.com/posts/1234567890');
+    expect(normalized[0]).toBe('https://www.linkedin.com/feed/update/urn:li:activity:1234567890');
   });
 
   it('adds https when the scheme is missing and keeps real query parameters', () => {

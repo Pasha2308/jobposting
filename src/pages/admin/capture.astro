@@ -47,7 +47,8 @@ const stages = [
   {!aiReady && (
     <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
       <strong>AI extraction is not configured.</strong> Captures can still be received and saved, but extraction will
-      fail until <code>GEMINI_API_KEY</code> is set. The capture is preserved and can be retried from its review page.
+      fail until <code>GROQ_API_KEY</code> (or <code>GEMINI_API_KEY</code>) is set. The capture is preserved and can be
+      retried from its review page.
     </div>
   )}
 

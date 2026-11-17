@@ -54,6 +54,7 @@ export class MemoryStore implements Store {
   telegramUpdates = new Set<number>();
   settings: AppSettings = { ...DEFAULT_SETTINGS };
   companySources: CompanySource[] = [];
+  nextPublicationNumber = 1;
 
   /* categories */
   async listCategories(opts: { activeOnly?: boolean } = {}): Promise<Category[]> {
@@ -248,11 +249,26 @@ export class MemoryStore implements Store {
 
   async createOpportunity(draft: OpportunityDraft): Promise<Opportunity> {
     if (this.opportunities.some((o) => o.slug === draft.slug)) throw new Error('Slug already exists.');
-    if (draft.canonical_source_key && this.opportunities.some((o) => o.canonical_source_key === draft.canonical_source_key)) {
+    const openingKey = draft.opening_key ?? 1;
+    if (
+      draft.canonical_source_key &&
+      this.opportunities.some(
+        (o) =>
+          o.canonical_source_key === draft.canonical_source_key &&
+          o.opening_key === openingKey &&
+          !['archived', 'rejected'].includes(o.status),
+      )
+    ) {
       throw new Error('Source already captured.');
     }
     const created: Opportunity = {
       ...draft,
+      education_requirements: draft.education_requirements ?? [],
+      benefits: draft.benefits ?? [],
+      languages: draft.languages ?? [],
+      recruiter_name: draft.recruiter_name ?? null,
+      quality_flags: draft.quality_flags ?? [],
+      completeness_score: draft.completeness_score ?? null,
       id: id(),
       discovered_at: draft.discovered_at ?? now(),
       published_at: draft.published_at ?? null,
@@ -260,6 +276,11 @@ export class MemoryStore implements Store {
       created_by: draft.created_by ?? null,
       created_at: now(),
       updated_at: now(),
+      opening_key: openingKey,
+      publication_number:
+        draft.status === 'published'
+          ? draft.publication_number ?? this.nextPublicationNumber++
+          : (draft.publication_number ?? null),
     };
     this.opportunities.push(created);
     return created;
@@ -268,7 +289,17 @@ export class MemoryStore implements Store {
   async updateOpportunity(oppId: string, patch: Partial<Opportunity>): Promise<Opportunity> {
     const index = this.opportunities.findIndex((o) => o.id === oppId);
     if (index < 0) throw new Error('Opportunity not found');
-    this.opportunities[index] = { ...this.opportunities[index], ...patch, updated_at: now() };
+    const existing = this.opportunities[index];
+    let pubNumber = patch.publication_number !== undefined ? patch.publication_number : existing.publication_number;
+    if (patch.status === 'published' && !pubNumber) {
+      pubNumber = this.nextPublicationNumber++;
+    }
+    this.opportunities[index] = {
+      ...existing,
+      ...patch,
+      publication_number: pubNumber,
+      updated_at: now(),
+    };
     return this.opportunities[index];
   }
 
@@ -389,7 +420,7 @@ export class MemoryStore implements Store {
       raw_text: input.raw_text,
       submitted_company: input.submitted_company ?? null,
       notes: input.notes ?? null,
-      status: 'received',
+      status: input.status ?? 'received',
       error_message: null,
       extraction: null,
       extraction_confidence: null,
@@ -397,6 +428,17 @@ export class MemoryStore implements Store {
       processing_started_at: null,
       opportunity_id: null,
       created_by: input.created_by,
+      retrieval_status: input.retrieval_status ?? 'pending',
+      retrieval_method: input.retrieval_method ?? null,
+      retrieval_http_status: input.retrieval_http_status ?? null,
+      retrieval_error_code: input.retrieval_error_code ?? null,
+      retrieval_attempts: input.retrieval_attempts ?? 0,
+      retrieved_at: input.retrieved_at ?? null,
+      next_retry_at: input.next_retry_at ?? null,
+      source_author: input.source_author ?? null,
+      source_posted_at: input.source_posted_at ?? null,
+      source_metadata: input.source_metadata ?? null,
+      source_comments: input.source_comments ?? null,
       telegram_user_id: input.telegram_user_id ?? null,
       telegram_chat_id: input.telegram_chat_id ?? null,
       telegram_message_id: input.telegram_message_id ?? null,
@@ -441,9 +483,14 @@ export class MemoryStore implements Store {
     const cutoff = Date.now() - Math.max(1, olderThanDays) * 86_400_000;
     let purged = 0;
     for (const capture of this.captures) {
-      if (Date.parse(capture.created_at) < cutoff && (capture.raw_text || capture.extraction)) {
+      if (
+        Date.parse(capture.created_at) < cutoff &&
+        (capture.raw_text || capture.extraction || capture.source_comments || capture.source_metadata)
+      ) {
         capture.raw_text = '';
         capture.extraction = null;
+        capture.source_comments = null;
+        capture.source_metadata = null;
         capture.updated_at = now();
         purged += 1;
       }
@@ -454,13 +501,78 @@ export class MemoryStore implements Store {
   async findAwaitingCapture(telegramUserId: number, maxAgeMinutes: number): Promise<SourceCapture | null> {
     const cutoff = Date.now() - maxAgeMinutes * 60_000;
     return (
-      this.captures.find(
-        (c) =>
-          c.telegram_user_id === telegramUserId &&
-          c.status === 'awaiting_text' &&
-          Date.parse(c.created_at) >= cutoff,
-      ) ?? null
+      this.captures
+        .filter(
+          (c) =>
+            c.telegram_user_id === telegramUserId &&
+            ['awaiting_text', 'retrieval_failed'].includes(c.status) &&
+            Date.parse(c.created_at) >= cutoff,
+        )
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
     );
+  }
+
+  async claimDueRetrievals(limit: number): Promise<SourceCapture[]> {
+    const nowMs = Date.now();
+    const due = this.captures
+      .filter(
+        (c) =>
+          c.status === 'retrieval_failed' &&
+          c.retrieval_attempts < 4 &&
+          Boolean(c.next_retry_at) &&
+          Date.parse(c.next_retry_at as string) <= nowMs,
+      )
+      .sort((a, b) => (a.next_retry_at ?? a.created_at).localeCompare(b.next_retry_at ?? b.created_at))
+      .slice(0, Math.max(1, Math.min(limit, 25)));
+    for (const capture of due) {
+      capture.status = 'retrieving';
+      capture.retrieval_attempts += 1;
+      capture.processing_started_at = now();
+      capture.updated_at = now();
+    }
+    return due;
+  }
+
+  async recoverStaleRetrieving(olderThanSeconds: number): Promise<number> {
+    const cutoff = Date.now() - Math.max(30, olderThanSeconds) * 1000;
+    let recovered = 0;
+    for (const capture of this.captures) {
+      if (
+        capture.status === 'retrieving' &&
+        capture.processing_started_at &&
+        Date.parse(capture.processing_started_at) < cutoff
+      ) {
+        capture.status = 'retrieval_failed';
+        capture.retrieval_status = 'failed';
+        capture.retrieval_error_code = 'stale_recovered';
+        capture.error_message =
+          'Retrieval stopped before it finished (worker restart). The URL was preserved and the capture was re-queued.';
+        capture.next_retry_at = now();
+        capture.updated_at = now();
+        recovered += 1;
+      }
+    }
+    return recovered;
+  }
+
+  async recoverStaleExtracting(olderThanSeconds: number): Promise<number> {
+    const cutoff = Date.now() - Math.max(60, olderThanSeconds) * 1000;
+    let recovered = 0;
+    for (const capture of this.captures) {
+      if (
+        capture.status === 'extracting' &&
+        capture.processing_started_at &&
+        Date.parse(capture.processing_started_at) < cutoff
+      ) {
+        capture.status = 'extraction_failed';
+        capture.error_message =
+          'Extraction stopped before it finished (worker restart). The source was preserved and extraction can be retried.';
+        capture.processing_started_at = null;
+        capture.updated_at = now();
+        recovered += 1;
+      }
+    }
+    return recovered;
   }
 
   /* comments */

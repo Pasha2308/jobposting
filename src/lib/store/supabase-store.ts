@@ -77,6 +77,10 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     requirements: strArray(row.requirements),
     skills: strArray(row.skills),
     preferred_skills: strArray(row.preferred_skills),
+    education_requirements: strArray(row.education_requirements),
+    benefits: strArray(row.benefits),
+    languages: strArray(row.languages),
+    recruiter_name: str(row.recruiter_name),
     location_text: str(row.location_text),
     city: str(row.city),
     country: str(row.country),
@@ -98,6 +102,7 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     source_type: (row.source_type as Opportunity['source_type']) ?? null,
     source_capture_id: str(row.source_capture_id),
     canonical_source_key: str(row.canonical_source_key),
+    opening_key: Number(row.opening_key ?? 1),
     deadline: str(row.deadline),
     original_posted_at: str(row.original_posted_at),
     original_date_precision: (row.original_date_precision as Opportunity['original_date_precision']) ?? 'unknown',
@@ -105,6 +110,8 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     status: (row.status as Opportunity['status']) ?? 'draft',
     verification_status: (row.verification_status as Opportunity['verification_status']) ?? 'not_verified',
     is_featured: Boolean(row.is_featured),
+    quality_flags: strArray(row.quality_flags),
+    completeness_score: num(row.completeness_score),
     discovered_at: String(row.discovered_at ?? new Date().toISOString()),
     published_at: str(row.published_at),
     last_verified_at: str(row.last_verified_at),
@@ -113,6 +120,7 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     updated_at: String(row.updated_at ?? new Date().toISOString()),
     admin_notes: str(row.admin_notes),
     created_by: str(row.created_by),
+    publication_number: row.publication_number != null ? Number(row.publication_number) : null,
     company: companyRaw
       ? {
           id: String(companyRaw.id),
@@ -181,6 +189,19 @@ function mapCapture(row: Record<string, unknown>): SourceCapture {
     processing_started_at: str(row.processing_started_at),
     opportunity_id: str(row.opportunity_id),
     created_by: str(row.created_by),
+    retrieval_status: (row.retrieval_status as SourceCapture['retrieval_status']) ?? 'pending',
+    retrieval_method: (row.retrieval_method as SourceCapture['retrieval_method']) ?? null,
+    retrieval_http_status: row.retrieval_http_status == null ? null : Number(row.retrieval_http_status),
+    retrieval_error_code: str(row.retrieval_error_code),
+    retrieval_attempts: Number(row.retrieval_attempts ?? 0),
+    retrieved_at: str(row.retrieved_at),
+    next_retry_at: str(row.next_retry_at),
+    source_author: str(row.source_author),
+    source_posted_at: str(row.source_posted_at),
+    source_metadata: (row.source_metadata as Record<string, unknown> | null) ?? null,
+    source_comments: Array.isArray(row.source_comments)
+      ? (row.source_comments as SourceCapture['source_comments'])
+      : null,
     telegram_user_id: row.telegram_user_id == null ? null : Number(row.telegram_user_id),
     telegram_chat_id: row.telegram_chat_id == null ? null : Number(row.telegram_chat_id),
     telegram_message_id: row.telegram_message_id == null ? null : Number(row.telegram_message_id),
@@ -239,6 +260,12 @@ function opportunityRow(draft: OpportunityDraft): Record<string, unknown> {
     requirements: draft.requirements ?? [],
     skills: draft.skills ?? [],
     preferred_skills: draft.preferred_skills ?? [],
+    education_requirements: draft.education_requirements ?? [],
+    benefits: draft.benefits ?? [],
+    languages: draft.languages ?? [],
+    recruiter_name: draft.recruiter_name ?? null,
+    quality_flags: draft.quality_flags ?? [],
+    completeness_score: draft.completeness_score ?? null,
     location_text: draft.location_text,
     city: draft.city,
     country: draft.country,
@@ -271,6 +298,8 @@ function opportunityRow(draft: OpportunityDraft): Record<string, unknown> {
     last_verified_at: draft.last_verified_at,
     closed_at: draft.closed_at ?? null,
     admin_notes: draft.admin_notes,
+    opening_key: draft.opening_key ?? 1,
+    ...(draft.publication_number !== undefined ? { publication_number: draft.publication_number } : {}),
     ...(draft.discovered_at ? { discovered_at: draft.discovered_at } : {}),
     ...(draft.created_by ? { created_by: draft.created_by } : {}),
   };
@@ -612,10 +641,22 @@ export class SupabaseStore implements Store {
         raw_text: input.raw_text,
         submitted_company: input.submitted_company ?? null,
         notes: input.notes ?? null,
+        ...(input.status ? { status: input.status } : {}),
         created_by: input.created_by,
         telegram_user_id: input.telegram_user_id ?? null,
         telegram_chat_id: input.telegram_chat_id ?? null,
         telegram_message_id: input.telegram_message_id ?? null,
+        ...(input.retrieval_status ? { retrieval_status: input.retrieval_status } : {}),
+        retrieval_method: input.retrieval_method ?? null,
+        retrieval_http_status: input.retrieval_http_status ?? null,
+        retrieval_error_code: input.retrieval_error_code ?? null,
+        ...(input.retrieval_attempts != null ? { retrieval_attempts: input.retrieval_attempts } : {}),
+        retrieved_at: input.retrieved_at ?? null,
+        next_retry_at: input.next_retry_at ?? null,
+        source_author: input.source_author ?? null,
+        source_posted_at: input.source_posted_at ?? null,
+        source_metadata: input.source_metadata ?? null,
+        source_comments: input.source_comments ?? null,
       })
       .select('*')
       .single();
@@ -668,9 +709,8 @@ export class SupabaseStore implements Store {
     const cutoff = new Date(Date.now() - Math.max(1, olderThanDays) * 86_400_000).toISOString();
     const { data, error } = await this.client
       .from('source_captures')
-      .update({ raw_text: '', extraction: null })
+      .update({ raw_text: '', extraction: null, source_comments: null, source_metadata: null })
       .lt('created_at', cutoff)
-      .neq('raw_text', '')
       .select('id');
     if (error) fail(error, 'Could not purge expired source text');
     return (data ?? []).length;
@@ -682,13 +722,54 @@ export class SupabaseStore implements Store {
       .from('source_captures')
       .select('*')
       .eq('telegram_user_id', telegramUserId)
-      .eq('status', 'awaiting_text')
+      .in('status', ['awaiting_text', 'retrieval_failed'])
       .gte('created_at', cutoff)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) fail(error, 'Could not check pending capture');
     return data ? mapCapture(data as Record<string, unknown>) : null;
+  }
+
+  async claimDueRetrievals(limit: number): Promise<SourceCapture[]> {
+    const { data, error } = await this.client.rpc('claim_retrieval_retries', { p_limit: limit });
+    if (error) fail(error, 'Could not claim retrieval retries');
+    return ((data ?? []) as Record<string, unknown>[]).map(mapCapture);
+  }
+
+  async recoverStaleRetrieving(olderThanSeconds: number): Promise<number> {
+    const cutoff = new Date(Date.now() - Math.max(30, olderThanSeconds) * 1000).toISOString();
+    const { data, error } = await this.client
+      .from('source_captures')
+      .update({
+        status: 'retrieval_failed',
+        retrieval_status: 'failed',
+        retrieval_error_code: 'stale_recovered',
+        error_message: 'Retrieval stopped before it finished (worker restart). The URL was preserved and the capture was re-queued.',
+        next_retry_at: new Date().toISOString(),
+      })
+      .eq('status', 'retrieving')
+      .lt('processing_started_at', cutoff)
+      .select('id');
+    if (error) fail(error, 'Could not recover stale retrievals');
+    return (data ?? []).length;
+  }
+
+  async recoverStaleExtracting(olderThanSeconds: number): Promise<number> {
+    const cutoff = new Date(Date.now() - Math.max(60, olderThanSeconds) * 1000).toISOString();
+    const { data, error } = await this.client
+      .from('source_captures')
+      .update({
+        status: 'extraction_failed',
+        error_message:
+          'Extraction stopped before it finished (worker restart). The source was preserved and extraction can be retried.',
+        processing_started_at: null,
+      })
+      .eq('status', 'extracting')
+      .lt('processing_started_at', cutoff)
+      .select('id');
+    if (error) fail(error, 'Could not recover stale extractions');
+    return (data ?? []).length;
   }
 
   /* ------------------------------------------------------------------ */

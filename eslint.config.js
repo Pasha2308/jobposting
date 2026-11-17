@@ -8,8 +8,10 @@ export default [
     ignores: [
       'dist/**',
       '.astro/**',
+      '.vercel/**',
       '.wrangler/**',
       'node_modules/**',
+      'public/**',
       'brand-assets/**',
       'coverage/**',
       'playwright-report/**',

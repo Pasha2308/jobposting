@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
-import { createAIProvider } from '../../../../lib/ai/gemini';
+import { createAIProvider } from '../../../../lib/ai';
 import { processCapture, rejectCapture, approveCapture } from '../../../../lib/services/capture';
+import { retryRetrieval } from '../../../../lib/services/ingest-source';
+import { createRetrievalService } from '../../../../lib/linkedin/jsonld';
 import { requireStore } from '../../../../lib/services/context';
 import { ServiceError } from '../../../../lib/services/errors';
 import { apiError, assertSameOrigin, jsonResponse, readJson } from '../../../../lib/http';
@@ -30,6 +32,28 @@ export const POST: APIRoute = async (context) => {
           : `/admin/captures/${captureId}`,
         genuine: result.genuine,
         warnings: result.warnings,
+      });
+    }
+    if (action === 'retry_retrieval') {
+      const ai = createAIProvider(context.locals.env);
+      const outcome = await retryRetrieval(
+        store,
+        ai,
+        captureId,
+        createRetrievalService(context.locals.env),
+        { actor, siteUrl: context.locals.env.siteUrl },
+      );
+      return jsonResponse({
+        ok: true,
+        retrieved: outcome.ok,
+        captureStatus: outcome.capture?.status ?? null,
+        message: outcome.ok ? 'Post retrieved and extraction ran.' : outcome.message,
+        errorCode: outcome.ok ? null : outcome.errorCode,
+        opportunityId: outcome.ok ? (outcome.result.opportunity?.id ?? null) : null,
+        reviewUrl: outcome.ok && outcome.result.opportunity
+          ? `/admin/opportunities/${outcome.result.opportunity.id}`
+          : `/admin/captures/${captureId}`,
+        warnings: outcome.ok ? outcome.result.warnings : [],
       });
     }
     if (action === 'reject') {

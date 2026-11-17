@@ -5,6 +5,7 @@ import OpportunityEditor from '../../../components/admin/OpportunityEditor';
 import CommentStudio from '../../../components/admin/CommentStudio';
 import { loadAdminCategories, loadComments, loadCompanies, loadOpportunityById } from '../../../lib/admin-data';
 import { STATUS_LABELS } from '../../../lib/domain/format';
+import { generateFixedComment } from '../../../lib/domain/comments';
 
 const env = Astro.locals.env;
 const id = Astro.params.id ?? '';
@@ -22,6 +23,10 @@ const [categories, companies, comments] = await Promise.all([
 const created = Astro.url.searchParams.get('created') === '1';
 const published = opportunity.status === 'published' && Boolean(opportunity.published_at);
 const listingUrl = published ? `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.slug}` : null;
+const fixedComment =
+  published && opportunity.publication_number
+    ? generateFixedComment(opportunity.publication_number, env.siteUrl)
+    : null;
 const companyList = companies.data.some((company) => company.id === opportunity.company_id)
   ? companies.data
   : opportunity.company
@@ -71,6 +76,9 @@ const companyList = companies.data.some((company) => company.id === opportunity.
         <span class:list={['badge', `badge--${opportunity.status}`]}>{STATUS_LABELS[opportunity.status]}</span>
         <span class:list={['badge', `badge--${opportunity.verification_status}`]}>{opportunity.verification_status.replace(/_/g, ' ')}</span>
         {opportunity.is_featured && <span class="badge badge--pending_review">Featured</span>}
+        {opportunity.publication_number && (
+          <span class="badge badge--published">Publication #{opportunity.publication_number}</span>
+        )}
         <span class="tiny muted">Slug: /opportunities/{opportunity.slug}</span>
       </div>
       <div class="cluster" style="gap:0.5rem">
@@ -85,6 +93,43 @@ const companyList = companies.data.some((company) => company.id === opportunity.
           </a>
         )}
       </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:1rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="check" size={14} /> Extraction quality</span>
+      {opportunity.completeness_score != null ? (
+        <span class="badge badge--pending_review">{Math.round(opportunity.completeness_score * 100)}% complete</span>
+      ) : (
+        <span class="badge">Not scored</span>
+      )}
+    </div>
+    <div class="panel__body">
+      <div class="meta-list">
+        <div class="meta-list__row">
+          <span class="meta-list__key">Application route</span>
+          <span class="meta-list__val">
+            {opportunity.application_method.replace(/_/g, ' ')}
+            {opportunity.application_url ? ` · ${opportunity.application_url}` : ''}
+            {opportunity.recruitment_email ? ` · ${opportunity.recruitment_email}` : ''}
+          </span>
+        </div>
+        <div class="meta-list__row"><span class="meta-list__key">Education</span><span class="meta-list__val">{opportunity.education_requirements.length ? opportunity.education_requirements.join(', ') : 'Not specified'}</span></div>
+        <div class="meta-list__row"><span class="meta-list__key">Benefits</span><span class="meta-list__val">{opportunity.benefits.length ? opportunity.benefits.join(', ') : 'Not specified'}</span></div>
+        <div class="meta-list__row"><span class="meta-list__key">Languages</span><span class="meta-list__val">{opportunity.languages.length ? opportunity.languages.join(', ') : 'Not specified'}</span></div>
+        <div class="meta-list__row"><span class="meta-list__key">Recruiter</span><span class="meta-list__val">{opportunity.recruiter_name ?? 'Not specified'}</span></div>
+      </div>
+      {opportunity.quality_flags.length > 0 ? (
+        <div style="margin-top:1rem">
+          <p class="tiny muted" style="margin-bottom:0.4rem">Missing or uncertain fields (verify before publishing)</p>
+          <div class="skill-tags">
+            {opportunity.quality_flags.map((flag) => <span class="chip">{flag.replace(/_/g, ' ')}</span>)}
+          </div>
+        </div>
+      ) : (
+        <p class="tiny muted" style="margin-top:0.75rem">No missing-field flags were raised for this opening.</p>
+      )}
     </div>
   </div>
 
@@ -105,4 +150,61 @@ const companyList = companies.data.some((company) => company.id === opportunity.
       published={published}
     />
   </div>
+
+  {published && (
+    <section class="panel" style="margin-top:1.5rem" id="fixed-comment">
+      <div class="panel__head">
+        <span class="panel__title"><Icon name="message" size={14} /> Standard LinkedIn comment</span>
+        {opportunity.publication_number ? (
+          <span class="badge badge--published">Publication #{opportunity.publication_number}</span>
+        ) : (
+          <span class="badge badge--pending_review">Number not allocated</span>
+        )}
+      </div>
+      <div class="panel__body">
+        {fixedComment ? (
+          <>
+            <p class="tiny muted" style="line-height:1.6;margin-bottom:0.75rem">
+              Copy this exact comment after publishing the LinkedIn post. The number is allocated once and never changes.
+            </p>
+            <textarea class="textarea" id="fixed-comment-text" rows={2} readonly aria-label="Standard LinkedIn comment">{fixedComment}</textarea>
+            <div class="cluster" style="margin-top:0.75rem">
+              <button class="btn btn--primary btn--sm" type="button" data-copy-fixed-comment>
+                <Icon name="copy" size={13} /> Copy comment
+              </button>
+              <span class="tiny muted" data-copy-fixed-status role="status" aria-live="polite" hidden></span>
+            </div>
+          </>
+        ) : (
+          <div class="alert alert--warning" role="status">
+            <strong>No publication number.</strong> Run <code>supabase/migrations/0003_multi_opening.sql</code> in the
+            Supabase SQL editor, then republish or refresh this record.
+          </div>
+        )}
+      </div>
+    </section>
+  )}
 </AdminLayout>
+
+<script>
+  const copyButton = document.querySelector<HTMLButtonElement>('[data-copy-fixed-comment]');
+  const commentField = document.querySelector<HTMLTextAreaElement>('#fixed-comment-text');
+  const copyStatus = document.querySelector<HTMLElement>('[data-copy-fixed-status]');
+
+  copyButton?.addEventListener('click', async () => {
+    if (!commentField) return;
+    try {
+      await navigator.clipboard.writeText(commentField.value);
+      if (copyStatus) {
+        copyStatus.hidden = false;
+        copyStatus.textContent = 'Copied. Paste it into your LinkedIn comment.';
+      }
+    } catch {
+      commentField.select();
+      if (copyStatus) {
+        copyStatus.hidden = false;
+        copyStatus.textContent = 'Clipboard unavailable. The text is selected — copy it manually.';
+      }
+    }
+  });
+</script>

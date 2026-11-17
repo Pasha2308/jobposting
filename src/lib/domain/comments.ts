@@ -100,3 +100,11 @@ export const COMMENT_STYLE_LABELS: Record<CommentStyle, string> = {
 function clean(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * Standard LinkedIn comment template:
+ * Explore more {NUMBER} similar opportunities at Hustler Community: {WEBSITE_URL}/opportunities
+ */
+export function generateFixedComment(number: number, siteUrl: string): string {
+  return `Explore more ${number} similar opportunities at Hustler Community: ${siteUrl.replace(/\/+$/, '')}/opportunities`;
+}

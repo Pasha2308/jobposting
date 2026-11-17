@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { createAIProvider } from '../../../lib/ai/gemini';
+import { createAIProvider } from '../../../lib/ai';
 import { processCapture, submitCapture } from '../../../lib/services/capture';
 import { requireStore } from '../../../lib/services/context';
 import { ServiceError } from '../../../lib/services/errors';
@@ -39,7 +39,7 @@ export const POST: APIRoute = async (context) => {
           : `/admin/captures/${submitted.capture.id}`,
         genuine: result.genuine,
         warnings: result.warnings,
-        extraction: result.extraction,
+        extractions: result.extractions,
       });
     } catch (error) {
       // The capture is already preserved. Report the extraction failure without

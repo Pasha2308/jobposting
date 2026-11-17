@@ -2,9 +2,12 @@ import type { AIProvider } from '../ai/provider';
 import type { AppEnv } from '../env';
 import type { Store } from '../store/types';
 import type { OpportunityWithRelations, SourceCapture } from '../domain/types';
-import { canonicalSourceKey, extractLinkedInPostId, normalizeSourceUrl } from '../domain/url';
+import { canonicalSourceKey, extractLinkedInPostId, isLinkedInPostUrl, normalizeSourceUrl } from '../domain/url';
 import { generateComments } from '../domain/comments';
 import { processCapture, submitCapture, textSourceKey } from '../services/capture';
+import { ingestLinkedInUrl } from '../services/ingest-source';
+import { createRetrievalService } from '../linkedin/jsonld';
+import type { RetrievalFn } from '../linkedin/types';
 import { publishOpportunity, transitionOpportunity } from '../services/publishing';
 import { refreshComments } from '../services/comments';
 import { ServiceError } from '../services/errors';
@@ -34,14 +37,19 @@ export type TelegramUpdate = {
 const HELP = [
   '<b>Hustler Community — Opportunity capture</b>',
   '',
-  'Send a public post URL followed by the copied post text:',
+  'Send one LinkedIn post URL:',
+  '',
+  '<code>https://www.linkedin.com/posts/...</code>',
+  '',
+  'I save the link first, retrieve the post when authorised, extract every',
+  'opening separately, and show a preview with approve/reject buttons.',
+  '',
+  'If LinkedIn requires sign-in or retrieval is not authorised, the link is',
+  'kept and I will ask for the copied post text once:',
   '',
   '<code>https://www.linkedin.com/posts/...</code>',
   '<code>We are hiring a Founder Associate...</code>',
   '',
-  'I will extract the role, generate comment options and show a preview with approval buttons.',
-  '',
-  'You can send only a URL first; I will ask for the copied text.',
   'Commands: /help, /id',
 ].join('\n');
 
@@ -50,6 +58,8 @@ export type TelegramDeps = {
   ai: AIProvider | null;
   env: AppEnv;
   messenger: Messenger;
+  /** Injectable for tests; defaults to the configured adapter. */
+  retrieval?: RetrievalFn;
 };
 
 /**
@@ -110,19 +120,57 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
   const urlCandidate = urlMatch?.[0]?.replace(/[),.;!?]+$/, '') ?? null;
   const bodyWithoutUrl = urlMatch ? text.replace(urlMatch[0], '').trim() : text;
 
-  // Second message for a capture created from a URL-only message. Pasted post
-  // text often contains its own application URL, so treat substantial text as
-  // the follow-up even when a URL is present.
+  // Second message for a capture created from a URL-only message. A URL plus
+  // text only attaches to the pending capture when it is the same post, so a
+  // new submission can never overwrite another post's preserved source.
   const awaiting = await store.findAwaitingCapture(userId, 30);
-  if (awaiting && text.length >= 40 && (!urlCandidate || bodyWithoutUrl.length >= 40)) {
-    await store.updateCapture(awaiting.id, { raw_text: text, status: 'received' });
+  const candidateNormalized = urlCandidate ? normalizeSourceUrl(urlCandidate) : null;
+  const candidateIsLinkedInPost = Boolean(candidateNormalized && isLinkedInPostUrl(candidateNormalized));
+  const candidateKey =
+    candidateNormalized && candidateIsLinkedInPost
+      ? canonicalSourceKey(candidateNormalized, extractLinkedInPostId(candidateNormalized))
+      : null;
+  // A pasted post body often contains application links. Only a *LinkedIn post*
+  // URL can redirect the text to a different capture; any other link is treated
+  // as part of the copied text.
+  const samePendingSource = !candidateIsLinkedInPost || candidateKey === awaiting?.normalized_source_key;
+  if (
+    awaiting &&
+    text.length >= 40 &&
+    samePendingSource &&
+    (!urlCandidate || bodyWithoutUrl.length >= 40)
+  ) {
+    await store.updateCapture(awaiting.id, {
+      raw_text: text,
+      status: 'received',
+      retrieval_status: 'retrieved',
+      retrieval_method: 'manual_text',
+      retrieved_at: new Date().toISOString(),
+      next_retry_at: null,
+      retrieval_error_code: null,
+      error_message: null,
+      processing_started_at: null,
+    });
     await messenger.sendMessage(chatId, 'Extracting the opportunity…');
     try {
       const result = await processCapture(store, ai, awaiting.id, {
         actor: `telegram:${userId}`,
         siteUrl: env.siteUrl,
       });
-      await sendPreview(chatId, result.capture, result.opportunity, result.warnings, deps);
+      const opps = result.opportunities && result.opportunities.length > 0
+        ? result.opportunities
+        : result.opportunity ? [result.opportunity] : [];
+      if (opps.length > 0) {
+        for (const opp of opps) {
+          await sendPreview(chatId, result.capture, opp, result.warnings, deps);
+        }
+      } else {
+        await messenger.sendMessage(
+          chatId,
+          `The AI did not identify a specific vacancy.\n\nReview and decide: ${env.siteUrl}/admin/captures/${awaiting.id}`,
+          { disable_web_page_preview: true },
+        );
+      }
     } catch (error) {
       const link = `${env.siteUrl}/admin/captures/${awaiting.id}`;
       const safe = error instanceof ServiceError ? error.message : 'Extraction failed. The capture was preserved.';
@@ -137,8 +185,7 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
   if (!urlCandidate) {
     await messenger.sendMessage(
       chatId,
-      'Send a public post URL and the copied post text.\n\n<code>https://www.linkedin.com/posts/...</code>\n<code>We are hiring a Founder Associate...</code>',
-      { parse_mode: 'HTML', disable_web_page_preview: true },
+      'Please send a post URL, or paste a URL followed by the post text.\nSend /help for examples.',
     );
     return;
   }
@@ -149,76 +196,159 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
     return;
   }
 
-  if (bodyWithoutUrl.length < 40) {
-    const postId = extractLinkedInPostId(normalizedUrl);
-    const key = canonicalSourceKey(normalizedUrl, postId) ?? (await textSourceKey(normalizedUrl));
-    const existing = await store.getCaptureBySourceKey(key);
-    if (existing && !['rejected', 'extraction_failed'].includes(existing.status)) {
-      const link = existing.opportunity_id
-        ? `${env.siteUrl}/admin/opportunities/${existing.opportunity_id}`
-        : `${env.siteUrl}/admin/captures/${existing.id}`;
-      await messenger.sendMessage(
-        chatId,
-        `This source has already been captured (${escapeHtml(existing.status)}).\n${escapeHtml(link)}`,
-        { parse_mode: 'HTML', disable_web_page_preview: true },
-      );
-      return;
-    }
-    const opportunity = await store.findOpportunityBySourceKey(key);
-    if (opportunity) {
-      await messenger.sendMessage(
-        chatId,
-        `An opportunity already exists for this source: ${escapeHtml(`${env.siteUrl}/opportunities/${opportunity.slug}`)}`,
-        { disable_web_page_preview: true },
-      );
-      return;
-    }
+  const postId = extractLinkedInPostId(normalizedUrl);
+  const sourceKey = canonicalSourceKey(normalizedUrl, postId) ?? (await textSourceKey(text));
 
-    const capture = await store.createCapture({
-      source_url: normalizedUrl,
-      normalized_source_key: key,
-      source_post_id: postId,
-      source_type: 'linkedin_post',
-      raw_text: '',
-      created_by: `telegram:${userId}`,
-      telegram_user_id: userId,
-      telegram_chat_id: chatId,
-      telegram_message_id: message.message_id,
-    });
-    await store.updateCapture(capture.id, { status: 'awaiting_text' });
+  const existing = await store.getCaptureBySourceKey(sourceKey);
+  if (existing && !['rejected', 'extraction_failed', 'retrieval_failed'].includes(existing.status)) {
+    const link = existing.opportunity_id
+      ? `${env.siteUrl}/admin/opportunities/${existing.opportunity_id}`
+      : `${env.siteUrl}/admin/captures/${existing.id}`;
     await messenger.sendMessage(
       chatId,
-      'Got the link. Now send the copied post text (one message). You have 30 minutes.',
+      `This source has already been captured (${escapeHtml(existing.status)}).\n${escapeHtml(link)}`,
+      { parse_mode: 'HTML', disable_web_page_preview: true },
     );
     return;
   }
 
-  const submitted = await submitCapture(store, {
-    sourceUrl: normalizedUrl,
-    rawText: bodyWithoutUrl,
-    sourceType: normalizedUrl.includes('linkedin.com') ? 'linkedin_post' : 'other',
-    actor: `telegram:${userId}`,
-    telegramUserId: userId,
-    telegramChatId: chatId,
-    telegramMessageId: message.message_id,
-  });
+  // URL-first ingestion. The capture is persisted before retrieval, so the URL
+  // survives any external failure. Copied text remains the fallback.
+  if (bodyWithoutUrl.length < 40) {
+    if (!isLinkedInPostUrl(normalizedUrl)) {
+      await messenger.sendMessage(
+        chatId,
+        'Only links to specific LinkedIn posts can be ingested automatically.\nSend the post URL, or send a URL followed by the copied post text.',
+      );
+      return;
+    }
 
-  await messenger.sendMessage(chatId, 'Processing: validating, checking duplicates, extracting with AI…');
+    await messenger.sendMessage(chatId, 'Got the link. Saving it and retrieving the post…', {
+      disable_web_page_preview: true,
+    });
 
+    const retrieval = deps.retrieval ?? createRetrievalService(env);
+    try {
+      const outcome = await ingestLinkedInUrl(
+        store,
+        ai,
+        {
+          sourceUrl: normalizedUrl,
+          actor: `telegram:${userId}`,
+          telegramUserId: userId,
+          telegramChatId: chatId,
+          telegramMessageId: message.message_id,
+        },
+        retrieval,
+        { siteUrl: env.siteUrl },
+      );
+
+      if (!outcome.ok) {
+        if (outcome.errorCode === 'duplicate' && outcome.duplicate) {
+          const link = outcome.duplicate.opportunityId
+            ? `${env.siteUrl}/admin/opportunities/${outcome.duplicate.opportunityId}`
+            : `${env.siteUrl}/admin/captures/${outcome.duplicate.captureId}`;
+          await messenger.sendMessage(
+            chatId,
+            `This source has already been captured (${escapeHtml(outcome.duplicate.status)}).\n${escapeHtml(link)}`,
+            { parse_mode: 'HTML', disable_web_page_preview: true },
+          );
+          return;
+        }
+        const review = outcome.capture
+          ? `${env.siteUrl}/admin/captures/${outcome.capture.id}`
+          : `${env.siteUrl}/admin/capture`;
+        await messenger.sendMessage(
+          chatId,
+          `⚠️ ${escapeHtml(outcome.message)}\n\nSend the copied post text in one message within 30 minutes and I will extract every opening.\n\n${escapeHtml(review)}`,
+          { parse_mode: 'HTML', disable_web_page_preview: true },
+        );
+        return;
+      }
+
+      const opps =
+        outcome.result.opportunities && outcome.result.opportunities.length > 0
+          ? outcome.result.opportunities
+          : outcome.result.opportunity
+            ? [outcome.result.opportunity]
+            : [];
+      if (opps.length > 0) {
+        for (const opp of opps) {
+          await sendPreview(chatId, outcome.result.capture, opp, outcome.result.warnings, deps);
+        }
+      } else {
+        await messenger.sendMessage(
+          chatId,
+          `The AI did not identify a specific vacancy.\n\nReview and decide: ${env.siteUrl}/admin/captures/${outcome.capture.id}`,
+          { disable_web_page_preview: true },
+        );
+      }
+    } catch (error) {
+      const stored = await store.getCaptureBySourceKey(sourceKey).catch(() => null);
+      const link = stored ? `${env.siteUrl}/admin/captures/${stored.id}` : `${env.siteUrl}/admin/capture`;
+      const safe = error instanceof ServiceError ? error.message : 'Processing failed. The capture was preserved.';
+      await messenger.sendMessage(chatId, `⚠️ ${escapeHtml(safe)}\n\nReview or retry: ${escapeHtml(link)}`, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      });
+    }
+    return;
+  }
+
+  // Full submission (URL + text in the same message).
+  let capture: SourceCapture;
   try {
-    const result = await processCapture(store, ai, submitted.capture.id, {
+    const submitted = await submitCapture(store, {
+      sourceUrl: normalizedUrl,
+      rawText: bodyWithoutUrl,
+      sourceType: 'linkedin_post',
+      actor: `telegram:${userId}`,
+      telegramUserId: userId,
+      telegramChatId: chatId,
+      telegramMessageId: message.message_id,
+    });
+    capture = submitted.capture;
+  } catch (error) {
+    if (error instanceof ServiceError && error.code === 'duplicate') {
+      const oppId = (error.details as { opportunityId?: string })?.opportunityId;
+      const link = oppId ? `${env.siteUrl}/admin/opportunities/${oppId}` : `${env.siteUrl}/admin/captures`;
+      await messenger.sendMessage(
+        chatId,
+        `This opportunity is already recorded in the database.\n${escapeHtml(link)}`,
+        { disable_web_page_preview: true },
+      );
+      return;
+    }
+    throw error;
+  }
+
+  await messenger.sendMessage(chatId, 'Extracting the opportunity…');
+  try {
+    const result = await processCapture(store, ai, capture.id, {
       actor: `telegram:${userId}`,
       siteUrl: env.siteUrl,
     });
-    await sendPreview(chatId, result.capture, result.opportunity, result.warnings, deps);
+    const opps = result.opportunities && result.opportunities.length > 0
+      ? result.opportunities
+      : result.opportunity ? [result.opportunity] : [];
+    if (opps.length > 0) {
+      for (const opp of opps) {
+        await sendPreview(chatId, result.capture, opp, result.warnings, deps);
+      }
+    } else {
+      await messenger.sendMessage(
+        chatId,
+        `The AI did not identify a specific vacancy.\n\nReview and decide: ${env.siteUrl}/admin/captures/${capture.id}`,
+        { disable_web_page_preview: true },
+      );
+    }
   } catch (error) {
-    const link = `${env.siteUrl}/admin/captures/${submitted.capture.id}`;
+    const link = `${env.siteUrl}/admin/captures/${capture.id}`;
     const safe = error instanceof ServiceError ? error.message : 'Extraction failed. The capture was preserved.';
-    await messenger.sendMessage(
-      chatId,
-      `⚠️ ${escapeHtml(safe)}\n\nReview or retry: ${escapeHtml(link)}`,
-      { parse_mode: 'HTML', disable_web_page_preview: true },
-    );
+    await messenger.sendMessage(chatId, `⚠️ ${escapeHtml(safe)}\n\nReview or retry: ${escapeHtml(link)}`, {
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
   }
 }
 
@@ -254,13 +384,16 @@ async function handleCallback(callback: TelegramCallback, deps: TelegramDeps): P
   try {
     if (action === 'pub') {
       const result = await publishOpportunity(store, opportunityId, `telegram:${userId}`, env.siteUrl);
+      const pubNum = result.opportunity.publication_number ?? 1;
+      const fixedComment = `Explore more ${pubNum} similar opportunities at Hustler Community: ${env.siteUrl.replace(/\/+$/, '')}/opportunities`;
       const text = [
         '✅ <b>Published</b>',
         escapeHtml(result.opportunity.title),
         '',
         `<a href="${escapeHtml(result.listingUrl)}">${escapeHtml(result.listingUrl)}</a>`,
         '',
-        'Copy the comment you need from the admin review page.',
+        '<b>Standard LinkedIn comment:</b>',
+        `<code>${escapeHtml(fixedComment)}</code>`,
       ].join('\n');
       await messenger.editMessageText(chatId, messageId, text, {
         parse_mode: 'HTML',
@@ -275,7 +408,6 @@ async function handleCallback(callback: TelegramCallback, deps: TelegramDeps): P
       await transitionOpportunity(store, opportunityId, 'submit_for_review', `telegram:${userId}`, env.siteUrl).catch(
         () => undefined,
       );
-      await store.updateOpportunity(opportunityId, { status: 'draft' });
       await store.logActivity({
         actor: `telegram:${userId}`,
         action: 'opportunity.saved_draft',
@@ -312,6 +444,10 @@ async function handleCallback(callback: TelegramCallback, deps: TelegramDeps): P
               { text: 'Approve & Publish', callback_data: `pub:${opportunityId}` },
               { text: 'Save Draft', callback_data: `draft:${opportunityId}` },
             ],
+            [
+              { text: 'Reject', callback_data: `rej:${opportunityId}` },
+              { text: 'Regenerate Comment', callback_data: `regen:${opportunityId}` },
+            ],
             [{ text: 'Open admin review', url: `${env.siteUrl}/admin/opportunities/${opportunityId}` }],
           ],
         },
@@ -324,7 +460,7 @@ async function handleCallback(callback: TelegramCallback, deps: TelegramDeps): P
         ? error.message
         : 'That action failed. The record was not changed.';
     const blocking =
-      error instanceof ServiceError && Array.isArray(error.details.blocking)
+      error instanceof ServiceError && Array.isArray(error.details?.blocking)
         ? `\n\n${(error.details.blocking as string[]).map((b) => `• ${escapeHtml(b)}`).join('\n')}`
         : '';
     await messenger

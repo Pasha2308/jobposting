@@ -18,14 +18,14 @@ const integrations = [
   },
   {
     name: 'Supabase Auth',
-    ok: config.database,
+    ok: config.auth,
     env: 'SUPABASE_ANON_KEY',
     detail: 'Verifies the HttpOnly admin session. Public signup must stay disabled in Supabase.',
   },
   {
-    name: 'Gemini extraction',
+    name: env.aiProvider === 'groq' ? 'Groq extraction' : 'Gemini extraction',
     ok: config.ai,
-    env: 'GEMINI_API_KEY · GEMINI_MODEL',
+    env: env.aiProvider === 'groq' ? 'GROQ_API_KEY · GROQ_MODEL' : 'GEMINI_API_KEY · GEMINI_MODEL',
     detail: 'Server-side only. Captures are preserved when extraction fails so they can be retried.',
   },
   {
@@ -45,6 +45,7 @@ const integrations = [
 const setupChecks = [
   { label: 'Database migrations applied', done: config.database },
   { label: 'Public site URL configured', done: Boolean(config.siteUrl) },
+  { label: 'Supabase Auth configured', done: config.auth },
   { label: 'AI extraction key present', done: config.ai },
   { label: 'Telegram webhook configured', done: config.telegram },
   { label: 'Turnstile configured (optional)', done: config.turnstile },

@@ -19,6 +19,10 @@ function draft(overrides: Partial<OpportunityDraft> = {}): OpportunityDraft {
     requirements: [],
     skills: [],
     preferred_skills: [],
+    education_requirements: [],
+    benefits: [],
+    languages: [],
+    recruiter_name: null,
     location_text: 'Bengaluru, India',
     city: 'Bengaluru',
     country: 'India',
@@ -48,8 +52,12 @@ function draft(overrides: Partial<OpportunityDraft> = {}): OpportunityDraft {
     verification_status: 'source_open',
     last_verified_at: null,
     is_featured: false,
+    quality_flags: [],
+    completeness_score: null,
     admin_notes: null,
     created_by: 'test',
+    opening_key: 1,
+    publication_number: null,
     ...overrides,
   };
 }

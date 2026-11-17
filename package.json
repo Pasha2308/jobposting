@@ -13,13 +13,14 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "preview": "astro preview",
-    "deploy": "npm run build && wrangler pages deploy dist",
+    "deploy": "npm run build && vercel --prod",
     "db:push": "echo \"Apply supabase/migrations/*.sql in the Supabase SQL editor (see README)\""
   },
   "dependencies": {
-    "@astrojs/cloudflare": "12.6.13",
     "@astrojs/react": "4.4.2",
+    "@astrojs/vercel": "^8.2.11",
     "@supabase/supabase-js": "2.119.0",
+    "@vercel/functions": "^3.11.3",
     "astro": "5.18.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -30,15 +31,14 @@
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.56.1",
     "@types/node": "^24.10.0",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.1",
     "eslint-plugin-astro": "^1.5.0",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.3",
-    "vitest": "3.2.7",
-    "wrangler": "^4.46.0"
+    "vitest": "3.2.7"
   },
   "engines": {
     "node": ">=20.19.0"

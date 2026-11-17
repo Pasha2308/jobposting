@@ -24,6 +24,9 @@ import type {
   SourceCapture,
   SourceType,
   CaptureStatus,
+  RetrievalMethod,
+  RetrievalStatus,
+  SourceComment,
   VerificationStatus,
 } from '../domain/types';
 import type { DuplicateCandidate } from '../domain/duplicates';
@@ -106,15 +109,40 @@ export interface Store {
     submitted_company?: string | null;
     notes?: string | null;
     created_by: string;
+    status?: CaptureStatus;
     telegram_user_id?: number | null;
     telegram_chat_id?: number | null;
     telegram_message_id?: number | null;
+    retrieval_status?: RetrievalStatus;
+    retrieval_method?: RetrievalMethod | null;
+    retrieval_http_status?: number | null;
+    retrieval_error_code?: string | null;
+    retrieval_attempts?: number;
+    retrieved_at?: string | null;
+    next_retry_at?: string | null;
+    source_author?: string | null;
+    source_posted_at?: string | null;
+    source_metadata?: Record<string, unknown> | null;
+    source_comments?: SourceComment[] | null;
   }): Promise<SourceCapture>;
   getCapture(id: string): Promise<SourceCapture | null>;
   getCaptureBySourceKey(key: string): Promise<SourceCapture | null>;
   updateCapture(id: string, patch: Partial<SourceCapture>): Promise<SourceCapture>;
   listCaptures(filters: CaptureFilters): Promise<{ items: SourceCapture[]; total: number }>;
+  /**
+   * Most recent capture from this Telegram user that is waiting for copied
+   * text, including one whose automatic retrieval failed (URL preserved).
+   */
   findAwaitingCapture(telegramUserId: number, maxAgeMinutes: number): Promise<SourceCapture | null>;
+  /** Atomically claim due retrieval retries. Never returns the same row twice. */
+  claimDueRetrievals(limit: number): Promise<SourceCapture[]>;
+  /** Re-queue captures left in `retrieving` after a worker was killed. */
+  recoverStaleRetrieving(olderThanSeconds: number): Promise<number>;
+  /**
+   * Mark captures left in `extracting` after a worker was killed as failed so
+   * an admin can retry extraction. Nothing is deleted.
+   */
+  recoverStaleExtracting(olderThanSeconds: number): Promise<number>;
   /** Clears raw post text and extraction payloads older than the retention window. */
   purgeExpiredSourceText(olderThanDays: number): Promise<number>;
 

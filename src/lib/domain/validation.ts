@@ -37,36 +37,93 @@ const stringList = (maxItems = 30, maxLen = 400) =>
 export const extractionSchema = z.object({
   is_genuine_opportunity: z.boolean(),
   genuine_opportunity_reason: z.string().max(500).nullable().optional().default(null),
-  job_title: z.string().max(160).nullable(),
-  company_name: z.string().max(160).nullable(),
-  company_website: z.string().max(300).nullable(),
-  category_slug: z.string().max(80).nullable(),
-  summary: z.string().max(1200).nullable(),
-  responsibilities: z.array(z.string().max(400)).max(15).default([]),
-  requirements: z.array(z.string().max(400)).max(15).default([]),
-  required_skills: z.array(z.string().max(80)).max(25).default([]),
-  preferred_skills: z.array(z.string().max(80)).max(25).default([]),
-  location: z.string().max(160).nullable(),
-  city: z.string().max(100).nullable(),
-  country: z.string().max(100).nullable(),
-  work_mode: z.enum(WORK_MODES).default('unspecified'),
-  employment_type: z.enum(EMPLOYMENT_TYPES).default('unspecified'),
-  salary_min: z.number().min(0).max(1_000_000_000).nullable(),
-  salary_max: z.number().min(0).max(1_000_000_000).nullable(),
-  currency: z.string().max(8).nullable(),
-  salary_period: z.enum(SALARY_PERIODS).default('unspecified'),
-  experience_min_years: z.number().min(0).max(60).nullable(),
-  experience_max_years: z.number().min(0).max(60).nullable(),
-  application_method: z.enum(APPLICATION_METHODS).default('none'),
-  recruitment_email: z.string().max(254).nullable(),
-  application_url: z.string().max(1000).nullable(),
-  application_instructions: z.string().max(1200).nullable(),
-  deadline: z.string().max(40).nullable(),
-  original_posted_date: z.string().max(40).nullable(),
-  original_date_precision: z.enum(DATE_PRECISIONS).default('unknown'),
-  original_date_text: z.string().max(200).nullable(),
-  confidence: z.number().min(0).max(1).default(0),
-  warnings: z.array(z.string().max(300)).max(20).default([]),
+  job_title: z.string().max(160).nullable().optional().default(null),
+  company_name: z.string().max(160).nullable().optional().default(null),
+  company_website: z.string().max(300).nullable().optional().default(null),
+  company_description: z.string().max(1200).nullable().optional().default(null),
+  category_slug: z.string().max(80).nullable().optional().default(null),
+  summary: z.string().max(1200).nullable().optional().default(null),
+  responsibilities: z.array(z.string().max(400)).max(15).nullable().optional().default([]),
+  requirements: z.array(z.string().max(400)).max(15).nullable().optional().default([]),
+  required_skills: z.array(z.string().max(80)).max(25).nullable().optional().default([]),
+  preferred_skills: z.array(z.string().max(80)).max(25).nullable().optional().default([]),
+  education_requirements: z.array(z.string().max(200)).max(10).nullable().optional().default([]),
+  benefits: z.array(z.string().max(200)).max(20).nullable().optional().default([]),
+  languages: z.array(z.string().max(60)).max(10).nullable().optional().default([]),
+  recruiter_name: z.string().max(160).nullable().optional().default(null),
+  location: z.string().max(160).nullable().optional().default(null),
+  city: z.string().max(100).nullable().optional().default(null),
+  country: z.string().max(100).nullable().optional().default(null),
+  work_mode: z.enum(WORK_MODES).optional().default('unspecified'),
+  employment_type: z.enum(EMPLOYMENT_TYPES).optional().default('unspecified'),
+  salary_min: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
+  salary_max: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
+  currency: z.string().max(8).nullable().optional().default(null),
+  salary_period: z.enum(SALARY_PERIODS).optional().default('unspecified'),
+  experience_min_years: z.number().min(0).max(60).nullable().optional().default(null),
+  experience_max_years: z.number().min(0).max(60).nullable().optional().default(null),
+  application_method: z.enum(APPLICATION_METHODS).optional().default('none'),
+  recruitment_email: z.string().max(254).nullable().optional().default(null),
+  application_url: z.string().max(1000).nullable().optional().default(null),
+  application_instructions: z.string().max(1200).nullable().optional().default(null),
+  deadline: z.string().max(40).nullable().optional().default(null),
+  original_posted_date: z.string().max(40).nullable().optional().default(null),
+  original_date_precision: z.enum(DATE_PRECISIONS).optional().default('unknown'),
+  original_date_text: z.string().max(200).nullable().optional().default(null),
+  confidence: z.number().min(0).max(1).optional().default(0),
+  warnings: z
+    .array(z.string().max(300))
+    .max(20)
+    .nullable()
+    .optional()
+    .transform((value) => value ?? []),
+
+  /** Openings array — one record per distinct job opening in the source post. */
+  openings: z
+    .array(
+      z.object({
+        job_title: z.string().max(160).nullable().default(null),
+        company_name: z.string().max(160).nullable().optional().default(null),
+        company_website: z.string().max(300).nullable().optional().default(null),
+        company_description: z.string().max(1200).nullable().optional().default(null),
+        category_slug: z.string().max(80).nullable().optional().default(null),
+        category: z.string().max(80).nullable().optional().default(null),
+        summary: z.string().max(1200).nullable().optional().default(null),
+        description: z.string().max(1200).nullable().optional().default(null),
+        responsibilities: z.array(z.string().max(400)).max(15).nullable().optional().default([]),
+        requirements: z.array(z.string().max(400)).max(15).nullable().optional().default([]),
+        required_skills: z.array(z.string().max(80)).max(25).nullable().optional().default([]),
+        preferred_skills: z.array(z.string().max(80)).max(25).nullable().optional().default([]),
+        education_requirements: z.array(z.string().max(200)).max(10).nullable().optional().default([]),
+        benefits: z.array(z.string().max(200)).max(20).nullable().optional().default([]),
+        languages: z.array(z.string().max(60)).max(10).nullable().optional().default([]),
+        recruiter_name: z.string().max(160).nullable().optional().default(null),
+        location: z.string().max(160).nullable().optional().default(null),
+        city: z.string().max(100).nullable().optional().default(null),
+        country: z.string().max(100).nullable().optional().default(null),
+        work_mode: z.enum(WORK_MODES).optional().default('unspecified'),
+        employment_type: z.enum(EMPLOYMENT_TYPES).optional().default('unspecified'),
+        salary_min: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
+        salary_max: z.number().min(0).max(1_000_000_000).nullable().optional().default(null),
+        currency: z.string().max(8).nullable().optional().default(null),
+        salary_period: z.enum(SALARY_PERIODS).optional().default('unspecified'),
+        experience_min_years: z.number().min(0).max(60).nullable().optional().default(null),
+        experience_max_years: z.number().min(0).max(60).nullable().optional().default(null),
+        application_method: z.enum(APPLICATION_METHODS).optional().default('none'),
+        recruitment_email: z.string().max(254).nullable().optional().default(null),
+        application_url: z.string().max(1000).nullable().optional().default(null),
+        application_instructions: z.string().max(1200).nullable().optional().default(null),
+        deadline: z.string().max(40).nullable().optional().default(null),
+        confidence: z.number().min(0).max(1).optional().default(0),
+        warnings: z
+          .array(z.string().max(300))
+          .max(20)
+          .nullable()
+          .optional()
+          .transform((value) => value ?? []),
+      }),
+    )
+    .default([]),
 });
 
 export type ExtractionOutput = z.infer<typeof extractionSchema>;
@@ -77,7 +134,12 @@ export const lenientExtractionSchema = extractionSchema.extend({
   requirements: z.array(z.string().max(400)).max(15).nullable().default([]),
   required_skills: z.array(z.string().max(80)).max(25).nullable().default([]),
   preferred_skills: z.array(z.string().max(80)).max(25).nullable().default([]),
-  warnings: z.array(z.string().max(300)).max(20).nullable().default([]),
+  warnings: z
+    .array(z.string().max(300))
+    .max(20)
+    .nullable()
+    .default([])
+    .transform((value) => value ?? []),
 });
 
 export function validateExtraction(raw: unknown): { ok: true; value: ExtractionOutput } | { ok: false; issues: string[] } {
@@ -118,6 +180,101 @@ export function validateExtraction(raw: unknown): { ok: true; value: ExtractionO
       sanitised.experience_min_years,
     ];
     sanitised.warnings.push('Experience range was reversed in the source; values were ordered low to high.');
+  }
+
+  // Ensure openings array is populated and sanitized
+  if (sanitised.openings.length === 0) {
+    if (sanitised.is_genuine_opportunity && sanitised.job_title) {
+      sanitised.openings = [
+        {
+          job_title: sanitised.job_title,
+          company_name: sanitised.company_name,
+          company_website: sanitised.company_website,
+          company_description: sanitised.company_description,
+          category_slug: sanitised.category_slug,
+          category: sanitised.category_slug,
+          summary: sanitised.summary,
+          description: sanitised.summary,
+          responsibilities: sanitised.responsibilities,
+          requirements: sanitised.requirements,
+          required_skills: sanitised.required_skills,
+          preferred_skills: sanitised.preferred_skills,
+          education_requirements: sanitised.education_requirements,
+          benefits: sanitised.benefits,
+          languages: sanitised.languages,
+          recruiter_name: sanitised.recruiter_name,
+          location: sanitised.location,
+          city: sanitised.city,
+          country: sanitised.country,
+          work_mode: sanitised.work_mode,
+          employment_type: sanitised.employment_type,
+          salary_min: sanitised.salary_min,
+          salary_max: sanitised.salary_max,
+          currency: sanitised.currency,
+          salary_period: sanitised.salary_period,
+          experience_min_years: sanitised.experience_min_years,
+          experience_max_years: sanitised.experience_max_years,
+          application_method: sanitised.application_method,
+          recruitment_email: sanitised.recruitment_email,
+          application_url: sanitised.application_url,
+          application_instructions: sanitised.application_instructions,
+          deadline: sanitised.deadline,
+          confidence: sanitised.confidence,
+          warnings: sanitised.warnings,
+        },
+      ];
+    }
+  } else {
+    // Sanitize each opening
+    sanitised.openings = sanitised.openings.map((op) => {
+      const companyName = op.company_name || sanitised.company_name;
+      const categorySlug = op.category_slug || op.category || sanitised.category_slug;
+      const summary = op.summary || op.description || sanitised.summary;
+      let salaryMin = op.salary_min;
+      let salaryMax = op.salary_max;
+      const opWarnings = Array.isArray(op.warnings) ? [...op.warnings] : [];
+
+      if (salaryMin != null && salaryMax != null && salaryMin > salaryMax) {
+        [salaryMin, salaryMax] = [salaryMax, salaryMin];
+        opWarnings.push('Salary range was reversed in the source; values were ordered low to high.');
+      }
+
+      let expMin = op.experience_min_years;
+      let expMax = op.experience_max_years;
+      if (expMin != null && expMax != null && expMin > expMax) {
+        [expMin, expMax] = [expMax, expMin];
+        opWarnings.push('Experience range was reversed in the source; values were ordered low to high.');
+      }
+
+      return {
+        ...op,
+        company_name: companyName,
+        category_slug: categorySlug,
+        category: categorySlug,
+        summary,
+        description: summary,
+        responsibilities: op.responsibilities ?? sanitised.responsibilities,
+        requirements: op.requirements ?? sanitised.requirements,
+        required_skills: op.required_skills ?? sanitised.required_skills,
+        preferred_skills: op.preferred_skills ?? sanitised.preferred_skills,
+        application_url: safeOutboundUrl(op.application_url),
+        recruitment_email: normalizeEmail(op.recruitment_email),
+        deadline: normalizeIsoDate(op.deadline) ?? sanitised.deadline,
+        currency: op.currency ? op.currency.trim().toUpperCase().slice(0, 3) : sanitised.currency,
+        salary_min: salaryMin,
+        salary_max: salaryMax,
+        experience_min_years: expMin,
+        experience_max_years: expMax,
+        warnings: opWarnings,
+      };
+    });
+
+    if (!sanitised.job_title && sanitised.openings[0]?.job_title) {
+      sanitised.job_title = sanitised.openings[0].job_title;
+    }
+    if (!sanitised.category_slug && sanitised.openings[0]?.category_slug) {
+      sanitised.category_slug = sanitised.openings[0].category_slug;
+    }
   }
 
   return { ok: true, value: sanitised };
@@ -327,6 +484,10 @@ export const opportunityInputSchema = z.object({
   requirements: stringList(),
   skills: stringList(30, 80),
   preferred_skills: stringList(30, 80),
+  education_requirements: stringList(10, 200),
+  benefits: stringList(20, 200),
+  languages: stringList(10, 60),
+  recruiter_name: nullableText(160),
   location_text: nullableText(160),
   city: nullableText(100),
   country: nullableText(100),

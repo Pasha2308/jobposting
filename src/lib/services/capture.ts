@@ -1,8 +1,9 @@
-import type { AIProvider } from '../ai/provider';
+import type { AIProvider, ExtractionRequest } from '../ai/provider';
 import { AIError } from '../ai/provider';
 import { validateExtraction, type ExtractionOutput, captureInputSchema } from '../domain/validation';
 import { buildOpportunitySlug, canonicalSourceKey, extractLinkedInPostId, normalizeEmail, normalizeSourceUrl, safeOutboundUrl, slugify } from '../domain/url';
 import { checkDuplicates, type DuplicateCandidate } from '../domain/duplicates';
+import { computeCompleteness } from '../domain/completeness';
 import type {
   Category,
   Company,
@@ -88,7 +89,7 @@ export async function submitCapture(store: Store, input: SubmitCaptureInput): Pr
   }
 
   const existingOpportunity = await store.findOpportunityBySourceKey(sourceKey);
-  if (existingOpportunity) {
+  if (existingOpportunity && !['rejected', 'archived'].includes(existingOpportunity.status)) {
     throw new ServiceError('duplicate', 'An opportunity already exists for this source.', 409, {
       opportunityId: existingOpportunity.id,
       slug: existingOpportunity.slug,
@@ -108,6 +109,11 @@ export async function submitCapture(store: Store, input: SubmitCaptureInput): Pr
     telegram_user_id: input.telegramUserId ?? null,
     telegram_chat_id: input.telegramChatId ?? null,
     telegram_message_id: input.telegramMessageId ?? null,
+    // A URL submitted together with copied text needs no network retrieval.
+    retrieval_status: 'retrieved',
+    retrieval_method: 'manual_text',
+    retrieval_attempts: 1,
+    retrieved_at: new Date().toISOString(),
   });
 
   await store.logActivity({
@@ -124,16 +130,20 @@ export async function submitCapture(store: Store, input: SubmitCaptureInput): Pr
 export type ProcessCaptureResult = {
   capture: SourceCapture;
   opportunity: OpportunityWithRelations | null;
-  extraction: ExtractionOutput;
+  opportunities: OpportunityWithRelations[];
+  extractions: Array<{ openingIndex: number; [key: string]: unknown }>;
   genuine: boolean;
   warnings: string[];
   potentialDuplicates: DuplicateCandidate[];
 };
 
 /**
- * Runs the full extraction pipeline for a capture. The raw capture is always
- * preserved, including on every failure path. Re-running is safe: a capture
- * that already produced an opportunity cannot be extracted again.
+ * Runs the full extraction pipeline for a capture. If the AI returns multiple
+ * openings (the `openings[]` envelope), each opening becomes an independent
+ * opportunity record, all linked to the same source capture.
+ *
+ * Re-running is safe: a capture that already produced an opportunity cannot be
+ * extracted again.
  */
 export async function processCapture(
   store: Store,
@@ -155,10 +165,17 @@ export async function processCapture(
       throw new ServiceError('busy', 'Extraction is already running for this capture.', 409);
     }
   }
+  if (capture.raw_text.trim().length < 40) {
+    throw new ServiceError(
+      'no_source_text',
+      'No post text is available yet. Automatic retrieval did not produce content; send the copied post text or retry retrieval.',
+      409,
+    );
+  }
   if (!ai) {
     await store.updateCapture(captureId, {
       status: 'extraction_failed',
-      error_message: 'AI extraction is not configured. Add GEMINI_API_KEY and retry — the capture has been preserved.',
+      error_message: 'AI extraction is not configured. Add GROQ_API_KEY or GEMINI_API_KEY and retry — the capture has been preserved.',
     });
     throw new ServiceError('ai_not_configured', 'AI extraction is not configured. The capture was saved and can be retried.', 503);
   }
@@ -172,12 +189,21 @@ export async function processCapture(
 
   try {
     const categories = await store.listCategories({ activeOnly: false });
-    const raw = await ai.extract({
+    const request = {
       sourceText: capture.raw_text,
       sourceUrl: capture.source_url,
       submittedCompany: capture.submitted_company,
       categorySlugs: categories.map((c) => ({ slug: c.slug, name: c.name })),
-    });
+      sourceMeta: {
+        author: capture.source_author,
+        postedAt: capture.source_posted_at,
+        headline:
+          typeof capture.source_metadata?.headline === 'string' ? capture.source_metadata.headline : null,
+        comments: capture.source_comments ?? [],
+        hasSharedContent: capture.source_metadata?.has_shared_content === true,
+      },
+    };
+    const raw = await ai.extract(request);
 
     const validated = validateExtraction(raw);
     if (!validated.ok) {
@@ -185,7 +211,7 @@ export async function processCapture(
     }
     const extraction = validated.value;
 
-    if (!extraction.is_genuine_opportunity) {
+    if (!extraction.is_genuine_opportunity || !extraction.openings || extraction.openings.length === 0) {
       const updated = await store.updateCapture(captureId, {
         status: 'needs_review',
         extraction,
@@ -199,150 +225,226 @@ export async function processCapture(
         action: 'capture.non_vacancy',
         entity_type: 'source_capture',
         entity_id: capture.id,
-        metadata: { reason: extraction.genuine_opportunity_reason?.slice(0, 300) ?? null },
+        metadata: { reason: extraction.genuine_opportunity_reason ?? 'No openings extracted from source.' },
       });
       return {
         capture: updated,
         opportunity: null,
-        extraction,
+        opportunities: [],
+        extractions: [],
         genuine: false,
-        warnings: ['The AI did not identify a specific vacancy in this source.'],
+        warnings: extraction.warnings.length > 0 ? extraction.warnings : ['The AI did not identify any specific vacancies in this source.'],
         potentialDuplicates: [],
       };
     }
 
     const warnings = [...extraction.warnings];
-    const duplicateCandidates = await store.recentDuplicateCandidates(300);
-    const companyName = extraction.company_name ?? capture.submitted_company ?? null;
-    const duplicateCheck = checkDuplicates(
-      {
-        title: extraction.job_title ?? 'Untitled opportunity',
-        companyName,
-        source_url: capture.source_url,
-        normalized_source_key: capture.normalized_source_key,
-      },
-      duplicateCandidates,
-    );
-    if (duplicateCheck.exact) {
-      const updated = await store.updateCapture(captureId, {
-        status: 'needs_review',
-        extraction,
-        extraction_confidence: extraction.confidence,
-        error_message: duplicateCheck.exactReason ?? 'Duplicate source detected.',
-      });
-      return {
-        capture: updated,
-        opportunity: null,
-        extraction,
-        genuine: true,
-        warnings: [duplicateCheck.exactReason ?? 'Duplicate source detected.'],
-        potentialDuplicates: [],
-      };
-    }
-    for (const duplicate of duplicateCheck.potential) {
-      warnings.push(`Possible duplicate of “${duplicate.title}” (${duplicate.reason})`);
-    }
 
-    const category = resolveCategory(extraction.category_slug, categories);
-    if (!category) warnings.push('No category matched; assign one before publishing.');
-
-    const company = await resolveCompany(store, companyName, extraction.company_website);
-    if (!company) warnings.push('No company identified; add a verified company before publishing.');
-
-    const normalized = normaliseApplication(extraction, capture);
-
-    const draft: OpportunityDraft = {
-      slug: buildOpportunitySlug(extraction.job_title ?? 'Untitled opportunity', companyName ?? 'company', capture.id.slice(0, 6)),
-      title: extraction.job_title?.trim() || 'Untitled opportunity',
-      company_id: company?.id ?? null,
-      category_id: category?.id ?? null,
-      summary: extraction.summary,
-      responsibilities: extraction.responsibilities,
-      requirements: extraction.requirements,
-      skills: extraction.required_skills,
-      preferred_skills: extraction.preferred_skills,
-      location_text: extraction.location,
-      city: extraction.city,
-      country: extraction.country,
-      country_code: countryCode(extraction.country),
-      work_mode: extraction.work_mode as WorkMode,
-      employment_type: extraction.employment_type as EmploymentType,
-      salary_min: extraction.salary_min,
-      salary_max: extraction.salary_max,
-      currency: extraction.currency,
-      salary_period: extraction.salary_period as SalaryPeriod,
-      experience_min_years: extraction.experience_min_years,
-      experience_max_years: extraction.experience_max_years,
-      application_method: normalized.method as ApplicationMethod,
-      application_url: normalized.applicationUrl,
-      recruitment_email: normalized.email,
-      careers_url: normalized.careersUrl,
-      application_instructions: extraction.application_instructions,
-      source_url: capture.source_url,
-      source_type: capture.source_type,
-      source_capture_id: capture.id,
-      canonical_source_key: capture.normalized_source_key || null,
-      deadline: normalized.deadline,
-      original_posted_at: normalisedOriginalDate(extraction, warnings),
-      original_date_precision: extraction.original_date_precision as DatePrecision,
-      original_date_text: extraction.original_date_text,
-      status: 'pending_review',
-      verification_status: 'needs_verification',
-      is_featured: false,
-      discovered_at: new Date().toISOString(),
-      published_at: null,
-      last_verified_at: null,
-      closed_at: null,
-      admin_notes: `AI extraction confidence: ${Math.round(extraction.confidence * 100)}%. Source: ${capture.source_url ?? 'pasted text'}`,
-      created_by: opts.actor,
-    };
-
-    if (normalized.warnings.length) warnings.push(...normalized.warnings);
-
-    let opportunity: Opportunity;
-    try {
-      opportunity = await store.createOpportunity(draft);
-    } catch (error) {
-      // Slug or canonical source collision: retry once with a random suffix.
-      const message = error instanceof Error ? error.message : '';
-      if (/slug|duplicate|already/i.test(message)) {
-        opportunity = await store.createOpportunity({
-          ...draft,
-          slug: `${draft.slug}-${Math.random().toString(36).slice(2, 6)}`,
-        });
-      } else {
-        throw error;
+    // Coverage verification for long multi-role posts. Advisory only: a
+    // mismatch is surfaced to the reviewer, never used to discard roles.
+    // Threshold is 4 extracted openings so a post that actually lists five
+    // roles but only produced four is still caught.
+    let coverage: CoverageReport | null = null;
+    if (extraction.openings.length >= 4 && typeof ai.listRoles === 'function') {
+      coverage = await runCoverageCheck(ai, request, extraction.openings.map((opening) => opening.job_title));
+      if (coverage && coverage.missing.length > 0) {
+        warnings.push(
+          `Coverage check: the source may mention ${coverage.detected.length} roles but ${coverage.missing.length} were not extracted (${coverage.missing.join(', ')}). Review the source before publishing.`,
+        );
       }
     }
 
-    const withRelations: OpportunityWithRelations = {
-      ...opportunity,
-      company: company
-        ? {
-            id: company.id,
-            name: company.name,
-            slug: company.slug,
-            website: company.website,
-            careers_url: company.careers_url,
-            description: company.description,
-            verified: company.verified,
-          }
-        : null,
-      category: category ? { id: category.id, name: category.name, slug: category.slug } : null,
-    };
+    const duplicateCandidates = await store.recentDuplicateCandidates(300);
+    const allPotentialDuplicates: DuplicateCandidate[] = [];
 
-    await refreshComments(store, withRelations, opts.siteUrl).catch(() => undefined);
+    // Per-opening duplicate check, company resolution and opportunity creation.
+    const openingResults = await Promise.all(
+      extraction.openings.map(async (opening, oi) => {
+        const openingKey = oi + 1;
+        const companyName = opening.company_name ?? extraction.company_name ?? capture.submitted_company ?? null;
+        const duplicateCheck = checkDuplicates(
+          {
+            title: opening.job_title ?? 'Untitled opportunity',
+            companyName,
+            source_url: capture.source_url,
+            normalized_source_key: capture.normalized_source_key,
+          },
+          duplicateCandidates,
+        );
+
+        if (duplicateCheck.exact) {
+          return {
+            opportunity: null as unknown as OpportunityWithRelations,
+            extraction: opening,
+            isDuplicate: true,
+          };
+        }
+
+        for (const duplicate of duplicateCheck.potential) {
+          allPotentialDuplicates.push(duplicate);
+          warnings.push(`Possible duplicate of "${duplicate.title}" (${duplicate.reason})`);
+        }
+
+        const category = resolveCategory(opening.category_slug ?? opening.category, categories);
+        if (!category) warnings.push(`Opening ${openingKey}: no category matched; assign one before publishing.`);
+
+        const company = await resolveCompany(
+          store,
+          companyName,
+          opening.company_website ?? extraction.company_website,
+          opening.company_description ?? extraction.company_description,
+        );
+
+        const application = normaliseApplication(opening, capture);
+        warnings.push(...application.warnings);
+
+        const completeness = computeCompleteness(
+          {
+            title: opening.job_title,
+            company_id: company?.id ?? null,
+            company_name: companyName,
+            summary: opening.summary ?? opening.description,
+            responsibilities: opening.responsibilities,
+            requirements: opening.requirements,
+            skills: opening.required_skills,
+            location_text: opening.location,
+            city: opening.city,
+            country: opening.country,
+            work_mode: opening.work_mode,
+            employment_type: opening.employment_type,
+            salary_min: opening.salary_min,
+            salary_max: opening.salary_max,
+            experience_min_years: opening.experience_min_years,
+            experience_max_years: opening.experience_max_years,
+            application_method: application.method,
+            application_url: application.applicationUrl,
+            recruitment_email: application.email,
+            deadline: application.deadline,
+            education_requirements: opening.education_requirements,
+            confidence: opening.confidence || extraction.confidence,
+          },
+          { hasApplicationRoute: application.method !== 'none' },
+        );
+
+        const baseSlug = buildOpportunitySlug(
+          opening.job_title ?? 'Untitled opportunity',
+          companyName ?? 'company',
+          extraction.openings.length > 1 ? `${capture.id.slice(0, 6)}-${openingKey}` : capture.id.slice(0, 6),
+        );
+
+        const draft: OpportunityDraft = {
+          slug: baseSlug,
+          title: opening.job_title?.trim() || 'Untitled opportunity',
+          company_id: company?.id ?? null,
+          category_id: category?.id ?? null,
+          summary: opening.summary ?? opening.description ?? null,
+          responsibilities: opening.responsibilities ?? [],
+          requirements: opening.requirements ?? [],
+          skills: opening.required_skills ?? [],
+          preferred_skills: opening.preferred_skills ?? [],
+          education_requirements: opening.education_requirements ?? [],
+          benefits: opening.benefits ?? [],
+          languages: opening.languages ?? [],
+          recruiter_name: opening.recruiter_name ?? extraction.recruiter_name ?? null,
+          quality_flags: completeness.flags,
+          completeness_score: completeness.score,
+          location_text: opening.location ?? null,
+          city: opening.city ?? null,
+          country: opening.country ?? null,
+          country_code: countryCode(opening.country),
+          work_mode: (opening.work_mode as WorkMode) || 'unspecified',
+          employment_type: (opening.employment_type as EmploymentType) || 'unspecified',
+          salary_min: opening.salary_min ?? null,
+          salary_max: opening.salary_max ?? null,
+          currency: opening.currency ?? null,
+          salary_period: (opening.salary_period as SalaryPeriod) || 'unspecified',
+          experience_min_years: opening.experience_min_years ?? null,
+          experience_max_years: opening.experience_max_years ?? null,
+          application_method: (application.method as ApplicationMethod) || 'none',
+          application_url: application.applicationUrl,
+          recruitment_email: application.email,
+          careers_url: application.careersUrl,
+          application_instructions: opening.application_instructions ?? null,
+          source_url: capture.source_url,
+          source_type: capture.source_type,
+          source_capture_id: capture.id,
+          canonical_source_key: capture.normalized_source_key || null,
+          opening_key: openingKey,
+          publication_number: null,
+          deadline: application.deadline,
+          original_posted_at:
+            normalisedOriginalDate(extraction, warnings) ?? dateOnly(capture.source_posted_at),
+          original_date_precision: extraction.original_date_precision as DatePrecision,
+          original_date_text: extraction.original_date_text,
+          status: 'pending_review',
+          verification_status: 'needs_verification',
+          is_featured: false,
+          discovered_at: new Date().toISOString(),
+          published_at: null,
+          last_verified_at: null,
+          closed_at: null,
+          admin_notes: `AI extraction confidence: ${Math.round((opening.confidence || extraction.confidence) * 100)}%. Completeness: ${Math.round(completeness.score * 100)}%. Source: ${capture.source_url ?? 'pasted text'}. Opening ${openingKey}/${extraction.openings.length}.`,
+          created_by: opts.actor,
+        };
+
+        let opportunity: Opportunity;
+        try {
+          opportunity = await store.createOpportunity(draft);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '';
+          if (/slug|duplicate|already/i.test(message)) {
+            opportunity = await store.createOpportunity({
+              ...draft,
+              slug: `${draft.slug}-${Math.random().toString(36).slice(2, 6)}`,
+            });
+          } else {
+            throw error;
+          }
+        }
+
+        const withRelations: OpportunityWithRelations = {
+          ...opportunity,
+          company: company
+            ? {
+                id: company.id,
+                name: company.name,
+                slug: company.slug,
+                website: company.website,
+                careers_url: company.careers_url,
+                description: company.description,
+                verified: company.verified,
+              }
+            : null,
+          category: category ? { id: category.id, name: category.name, slug: category.slug } : null,
+        };
+
+        await refreshComments(store, withRelations, opts.siteUrl).catch(() => undefined);
+
+        return {
+          opportunity: withRelations,
+          extraction: opening,
+          isDuplicate: false,
+        };
+      }),
+    );
+
+    const opportunities = openingResults
+      .filter((r) => r.opportunity !== null && !r.isDuplicate)
+      .map((r) => r.opportunity) as OpportunityWithRelations[];
+
+    const extractionSummary = extraction.openings.map((op, i) => ({
+      openingIndex: i,
+      job_title: op.job_title,
+      category: op.category_slug ?? op.category,
+      company_name: op.company_name,
+      confidence: op.confidence,
+    }));
 
     const updated = await store.updateCapture(captureId, {
       status: 'needs_review',
-      extraction: {
-        ...extraction,
-        review_warnings: warnings,
-        resolved_category: category?.slug ?? null,
-        potential_duplicates: duplicateCheck.potential,
-      },
+      extraction: coverage ? { ...extraction, coverage_check: coverage } : extraction,
       extraction_confidence: extraction.confidence,
-      opportunity_id: opportunity.id,
+      opportunity_id: opportunities[0]?.id ?? null,
       error_message: null,
     });
 
@@ -351,16 +453,17 @@ export async function processCapture(
       action: 'capture.extracted',
       entity_type: 'source_capture',
       entity_id: capture.id,
-      metadata: { opportunity_id: opportunity.id, confidence: extraction.confidence },
+      metadata: { opportunity_count: opportunities.length, confidence: extraction.confidence },
     });
 
     return {
       capture: updated,
-      opportunity: withRelations,
-      extraction,
+      opportunity: opportunities[0] ?? null,
+      opportunities,
+      extractions: extractionSummary,
       genuine: true,
       warnings,
-      potentialDuplicates: duplicateCheck.potential,
+      potentialDuplicates: allPotentialDuplicates,
     };
   } catch (error) {
     const message =
@@ -369,6 +472,7 @@ export async function processCapture(
         : error instanceof Error
           ? error.message
           : 'Extraction failed.';
+
     await store
       .updateCapture(captureId, {
         status: 'extraction_failed',
@@ -397,9 +501,9 @@ export async function retryCapture(
   const capture = await store.getCapture(captureId);
   if (!capture) throw new ServiceError('not_found', 'Capture not found.', 404);
   if (capture.opportunity_id) {
-    throw new ServiceError('already_processed', 'This capture already has an opportunity. Edit it in review instead.', 409);
+    throw new ServiceError('already_processed', 'This capture has already produced an opportunity.', 409);
   }
-  if (!['extraction_failed', 'received', 'validating', 'duplicate_check'].includes(capture.status)) {
+  if (!['extraction_failed', 'received', 'validating', 'duplicate_check', 'retrieval_failed'].includes(capture.status)) {
     throw new ServiceError('not_retryable', `A capture in "${capture.status}" cannot be retried.`, 409);
   }
   return processCapture(store, ai, captureId, opts);
@@ -418,7 +522,7 @@ export async function rejectCapture(
   }
   if (capture.opportunity_id) {
     const opportunity = await store.getOpportunityById(capture.opportunity_id);
-    if (opportunity && ['pending_review', 'draft'].includes(opportunity.status)) {
+    if (opportunity) {
       await store.updateOpportunity(opportunity.id, { status: 'rejected' });
     }
   }
@@ -431,7 +535,7 @@ export async function rejectCapture(
     action: 'capture.rejected',
     entity_type: 'source_capture',
     entity_id: capture.id,
-    metadata: { note: note?.slice(0, 300) ?? null },
+    metadata: { reason: note ?? 'Rejected by administrator.' },
   });
   return updated;
 }
@@ -457,7 +561,7 @@ export async function approveCapture(store: Store, captureId: string, actor: str
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export function resolveCategory(slugOrName: string | null, categories: Category[]): Category | null {
+export function resolveCategory(slugOrName: string | null | undefined, categories: Category[]): Category | null {
   if (!slugOrName) return null;
   const value = slugOrName.trim().toLowerCase();
   return (
@@ -468,17 +572,24 @@ export function resolveCategory(slugOrName: string | null, categories: Category[
   );
 }
 
-async function resolveCompany(store: Store, name: string | null, website: string | null): Promise<Company | null> {
+async function resolveCompany(
+  store: Store,
+  name: string | null,
+  website: string | null,
+  description?: string | null,
+): Promise<Company | null> {
   const cleanName = name?.trim();
   if (!cleanName) return null;
   const existing = await store.findCompanyByName(cleanName);
   if (existing) return existing;
   const websiteSafe = safeOutboundUrl(website);
+  const descriptionSafe = description?.trim().slice(0, 1200) || null;
   try {
     return await store.createCompany({
       name: cleanName.slice(0, 160),
       slug: slugify(cleanName).slice(0, 70) || `company-${Date.now()}`,
       website: websiteSafe,
+      description: descriptionSafe,
       verified: false,
     });
   } catch {
@@ -489,6 +600,7 @@ async function resolveCompany(store: Store, name: string | null, website: string
         name: cleanName.slice(0, 160),
         slug: `${slugify(cleanName).slice(0, 60)}-${Math.random().toString(36).slice(2, 6)}`,
         website: websiteSafe,
+        description: descriptionSafe,
         verified: false,
       });
     } catch {
@@ -498,14 +610,20 @@ async function resolveCompany(store: Store, name: string | null, website: string
 }
 
 function normaliseApplication(
-  extraction: ExtractionOutput,
+  opening: {
+    application_method: string;
+    application_url?: string | null;
+    recruitment_email?: string | null;
+    application_instructions?: string | null;
+    deadline?: string | null;
+  },
   capture: SourceCapture,
 ): { method: string; applicationUrl: string | null; email: string | null; careersUrl: string | null; deadline: string | null; warnings: string[] } {
   const warnings: string[] = [];
-  let method = extraction.application_method;
-  const applicationUrl = safeOutboundUrl(extraction.application_url);
+  let method = opening.application_method;
+  const applicationUrl = safeOutboundUrl(opening.application_url);
   const careersUrl: string | null = null;
-  const email = normalizeEmail(extraction.recruitment_email);
+  const email = normalizeEmail(opening.recruitment_email);
 
   if (method === 'external_url' && !applicationUrl) {
     warnings.push('The AI selected an external application URL but did not provide a valid URL.');
@@ -520,20 +638,72 @@ function normaliseApplication(
     method = 'none';
   }
   if (method === 'linkedin_post') {
-    if (!capture.source_url?.includes('linkedin.com') || !extraction.application_instructions) {
+    if (!capture.source_url?.includes('linkedin.com') || !opening.application_instructions) {
       warnings.push('LinkedIn application requires the original post URL and explicit application instructions.');
       method = 'none';
     }
   }
 
   let deadline: string | null = null;
-  if (extraction.deadline) {
-    const time = Date.parse(`${extraction.deadline}T23:59:59Z`);
-    if (Number.isFinite(time) && time >= Date.now()) deadline = extraction.deadline;
+  if (opening.deadline) {
+    const time = Date.parse(`${opening.deadline}T23:59:59Z`);
+    if (Number.isFinite(time) && time >= Date.now()) deadline = opening.deadline;
     else warnings.push('The stated deadline has passed or is invalid; it was not applied.');
   }
 
   return { method, applicationUrl, email, careersUrl, deadline, warnings };
+}
+
+export type CoverageReport = {
+  checked: true;
+  detected: string[];
+  extracted: string[];
+  missing: string[];
+};
+
+function roleKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(senior|junior|lead|staff|principal)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function roleMatches(detected: string, extracted: string): boolean {
+  const a = roleKey(detected);
+  const b = roleKey(extracted);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
+/**
+ * Second, cheap AI pass that lists role titles. Failure or quota exhaustion is
+ * ignored: extraction already succeeded and must not be discarded because the
+ * coverage check could not run.
+ */
+async function runCoverageCheck(
+  ai: AIProvider,
+  request: ExtractionRequest,
+  extractedTitles: Array<string | null | undefined>,
+): Promise<CoverageReport | null> {
+  if (!ai.listRoles) return null;
+  try {
+    const roles = await ai.listRoles(request);
+    const detected = [...new Set(roles.map((role) => role.trim()).filter(Boolean))];
+    const extracted = extractedTitles.filter((title): title is string => Boolean(title?.trim()));
+    const missing = detected.filter((role) => !extracted.some((title) => roleMatches(role, title)));
+    return { checked: true, detected, extracted, missing };
+  } catch {
+    return null;
+  }
+}
+
+function dateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : null;
 }
 
 function normalisedOriginalDate(extraction: ExtractionOutput, warnings: string[]): string | null {
@@ -599,7 +769,11 @@ const COUNTRY_CODES: Record<string, string> = {
   'new zealand': 'NZ',
 };
 
-export function countryCode(country: string | null): string | null {
+export function countryCode(country: string | null | undefined): string | null {
   if (!country) return null;
   return COUNTRY_CODES[country.trim().toLowerCase()] ?? null;
+}
+
+export function generateFixedComment(number: number, siteUrl: string): string {
+  return `Explore more ${number} similar opportunities at Hustler Community: ${siteUrl.replace(/\/+$/, '')}/opportunities`;
 }

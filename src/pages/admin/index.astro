@@ -36,7 +36,11 @@ const firstName = (admin.display_name || admin.email).split(/[\s@]/)[0];
 
 const integrations = [
   { name: 'Supabase database', ok: config.database, hint: 'SUPABASE_URL + service role key' },
-  { name: 'Gemini extraction', ok: config.ai, hint: 'GEMINI_API_KEY' },
+  {
+    name: env.aiProvider === 'groq' ? 'Groq extraction' : 'Gemini extraction',
+    ok: config.ai,
+    hint: env.aiProvider === 'groq' ? 'GROQ_API_KEY + GROQ_MODEL' : 'GEMINI_API_KEY + GEMINI_MODEL',
+  },
   { name: 'Telegram capture bot', ok: config.telegram, hint: 'Bot token, webhook secret, allowlist' },
   { name: 'Cloudflare Turnstile', ok: config.turnstile, hint: 'Public site key + secret key' },
 ];

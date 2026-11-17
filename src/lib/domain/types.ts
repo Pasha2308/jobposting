@@ -70,6 +70,8 @@ export const CAPTURE_STATUSES = [
   'validating',
   'duplicate_check',
   'awaiting_text',
+  'retrieving',
+  'retrieval_failed',
   'extracting',
   'extraction_failed',
   'needs_review',
@@ -78,6 +80,20 @@ export const CAPTURE_STATUSES = [
   'published',
 ] as const;
 export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
+
+export const RETRIEVAL_STATUSES = ['pending', 'retrieved', 'failed', 'skipped'] as const;
+export type RetrievalStatus = (typeof RETRIEVAL_STATUSES)[number];
+
+export const RETRIEVAL_METHODS = ['jsonld', 'manual_text', 'provider'] as const;
+export type RetrievalMethod = (typeof RETRIEVAL_METHODS)[number];
+
+/** A comment preserved from the source post; often carries per-role apply links. */
+export type SourceComment = {
+  author: string | null;
+  text: string;
+  links: string[];
+  is_author: boolean;
+};
 
 export const REPORT_REASONS = [
   'closed',
@@ -144,6 +160,10 @@ export type Opportunity = {
   requirements: string[];
   skills: string[];
   preferred_skills: string[];
+  education_requirements: string[];
+  benefits: string[];
+  languages: string[];
+  recruiter_name: string | null;
 
   location_text: string | null;
   city: string | null;
@@ -171,6 +191,8 @@ export type Opportunity = {
   /** Normalised canonical source key; unique across active opportunities. */
   canonical_source_key: string | null;
 
+  opening_key: number; /** Sequential number of this opening within its source capture (1, 2, 3, ...). */
+
   deadline: string | null;
   original_posted_at: string | null;
   original_date_precision: DatePrecision;
@@ -179,6 +201,9 @@ export type Opportunity = {
   status: OpportunityStatus;
   verification_status: VerificationStatus;
   is_featured: boolean;
+  /** Deterministic field-presence flags; never authored by the AI. */
+  quality_flags: string[];
+  completeness_score: number | null;
 
   discovered_at: string;
   published_at: string | null;
@@ -189,6 +214,7 @@ export type Opportunity = {
 
   admin_notes: string | null;
   created_by: string | null;
+  publication_number: number | null; /** Global sequential number allocated at publication time for the fixed comment template. null until published. */
 };
 
 export type OpportunityWithRelations = Opportunity & {
@@ -211,6 +237,8 @@ export type OpportunityDraft = Omit<
   published_at?: string | null;
   closed_at?: string | null;
   created_by?: string | null;
+  opening_key?: number;
+  publication_number?: number | null;
 };
 
 export type SourceCapture = {
@@ -230,6 +258,19 @@ export type SourceCapture = {
   processing_started_at: string | null;
   opportunity_id: string | null;
   created_by: string | null;
+
+  /* retrieval provenance — the submitted URL is always kept even on failure */
+  retrieval_status: RetrievalStatus;
+  retrieval_method: RetrievalMethod | null;
+  retrieval_http_status: number | null;
+  retrieval_error_code: string | null;
+  retrieval_attempts: number;
+  retrieved_at: string | null;
+  next_retry_at: string | null;
+  source_author: string | null;
+  source_posted_at: string | null;
+  source_metadata: Record<string, unknown> | null;
+  source_comments: SourceComment[] | null;
   telegram_user_id: number | null;
   telegram_chat_id: number | null;
   telegram_message_id: number | null;
