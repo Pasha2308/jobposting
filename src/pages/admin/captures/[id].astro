@@ -47,7 +47,7 @@ function text(value: unknown): string | null {
 
   {c && (
     <>
-      {c.error_message && (
+      {c.error_message && !c.retrieval_error_code && (
         <div class="alert alert--error" role="alert" style="margin-bottom:1.5rem">
           <strong>Last processing error.</strong> {c.error_message}
         </div>
@@ -55,8 +55,13 @@ function text(value: unknown): string | null {
 
       {c.retrieval_error_code && (
         <div class="alert alert--warning" role="status" style="margin-bottom:1.5rem">
-          <strong>Retrieval: {c.retrieval_error_code.replace(/_/g, ' ')}.</strong> The original URL is preserved and the
-          capture remains reviewable. {c.next_retry_at ? `Automatic retry scheduled for ${formatDateTime(c.next_retry_at)}.` : 'Send the copied post text or retry manually.'}
+          <strong>Retrieval failed: {c.retrieval_error_code.replace(/_/g, ' ')}.</strong>
+          <p style="margin:0.45rem 0">{c.error_message ?? 'No additional failure details were recorded.'}</p>
+          <span>The original URL and capture are preserved. {c.next_retry_at
+            ? `Automatic retry is scheduled for ${formatDateTime(c.next_retry_at)}.`
+            : c.retrieval_attempts >= 4
+              ? 'Automatic retries are exhausted; use Retry retrieval to try again.'
+              : 'No automatic retry is scheduled for this failure; use Retry retrieval after checking access and configuration.'}</span>
         </div>
       )}
 
@@ -80,7 +85,7 @@ function text(value: unknown): string | null {
                 </span>
               </div>
               <div class="meta-list__row"><span class="meta-list__key">Retrieval</span><span class="meta-list__val">{c.retrieval_status} {c.retrieval_method ? `via ${c.retrieval_method}` : ''}</span></div>
-              <div class="meta-list__row"><span class="meta-list__key">Retrieval attempts</span><span class="meta-list__val">{c.retrieval_attempts}{c.retrieval_http_status ? ` · HTTP ${c.retrieval_http_status}` : ''}</span></div>
+              <div class="meta-list__row"><span class="meta-list__key">Retrieval attempts</span><span class="meta-list__val">{c.retrieval_attempts} / 4 automatic attempts{c.retrieval_http_status ? ` · HTTP ${c.retrieval_http_status}` : ''}</span></div>
               <div class="meta-list__row"><span class="meta-list__key">Retrieval error</span><span class="meta-list__val mono tiny">{c.retrieval_error_code ?? 'None'}</span></div>
               <div class="meta-list__row"><span class="meta-list__key">Next retry</span><span class="meta-list__val">{c.next_retry_at ? formatDateTime(c.next_retry_at) : 'Not scheduled'}</span></div>
               <div class="meta-list__row"><span class="meta-list__key">Retrieved at</span><span class="meta-list__val">{c.retrieved_at ? formatDateTime(c.retrieved_at) : 'Not retrieved'}</span></div>

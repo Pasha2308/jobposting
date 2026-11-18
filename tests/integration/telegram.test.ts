@@ -81,7 +81,7 @@ describe('Telegram capture bot', () => {
     expect(store.opportunities).toHaveLength(1);
   });
 
-  it('asks for the copied text when only a URL is sent', async () => {
+  it('preserves a URL-only capture, explains retrieval failure and leaves manual text optional', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();
 
@@ -92,7 +92,9 @@ describe('Telegram capture bot', () => {
       messenger,
     });
     expect(store.captures[0].status).toBe('awaiting_text');
-    expect(messenger.sent.some((entry) => /send the copied post text/i.test(entry.text))).toBe(true);
+    expect(messenger.sent.some((entry) => /retrieval_not_authorised/i.test(entry.text))).toBe(true);
+    expect(messenger.sent.some((entry) => /original url are preserved/i.test(entry.text))).toBe(true);
+    expect(messenger.sent.some((entry) => /copied post text/i.test(entry.text))).toBe(false);
     expect(store.opportunities).toHaveLength(0);
 
     await handleTelegramUpdate(messageUpdate(2, SAMPLE_TEXT), {
@@ -105,7 +107,7 @@ describe('Telegram capture bot', () => {
     expect(store.opportunities).toHaveLength(1);
   });
 
-  it('saves a valid lnkd.in post link once and asks for copied text when retrieval is disabled', async () => {
+  it('saves a valid lnkd.in post link once and reports that retrieval must be authorised', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();
     const shortUrl = 'https://lnkd.in/p/dtEKwVfK';
@@ -116,7 +118,8 @@ describe('Telegram capture bot', () => {
     expect(store.captures).toHaveLength(1);
     expect(store.captures[0].source_url).toBe(shortUrl);
     expect(store.captures[0].status).toBe('awaiting_text');
-    expect(messenger.sent.some((entry) => /send the copied post text/i.test(entry.text))).toBe(true);
+    expect(messenger.sent.some((entry) => /retrieval_not_authorised/i.test(entry.text))).toBe(true);
+    expect(messenger.sent.some((entry) => /copied post text/i.test(entry.text))).toBe(false);
 
     await handleTelegramUpdate(messageUpdate(22, shortUrl), {
       store, ai: fakeAI(), env: testEnv(), messenger,

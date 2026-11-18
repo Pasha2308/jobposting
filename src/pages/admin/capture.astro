@@ -209,7 +209,14 @@ const stages = [
                       <span class="tiny muted">{capture.source_type.replace(/_/g, ' ')}</span>
                     )}
                   </td>
-                  <td class="mono tiny">{capture.attempt_count}</td>
+                  <td class="mono tiny" title={`${capture.retrieval_attempts} retrieval / ${capture.attempt_count} extraction attempts`}>
+                    {capture.retrieval_attempts} retrieval
+                    {capture.retrieval_error_code && (
+                      <div class="cell-sub" title={capture.error_message ?? capture.retrieval_error_code}>
+                        {capture.retrieval_error_code.replace(/_/g, ' ')}
+                      </div>
+                    )}
+                  </td>
                   <td class="tiny muted" title={formatDateTime(capture.created_at)}>{relativeTime(capture.created_at)}</td>
                   <td>
                     <a class="btn btn--outline btn--sm" href={`/admin/captures/${capture.id}`}>Open</a>

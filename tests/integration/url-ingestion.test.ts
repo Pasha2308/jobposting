@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AIProvider } from '../../src/lib/ai/provider';
 import { createRetrievalService } from '../../src/lib/linkedin/jsonld';
 import { retrievalFailure, type RetrievalFn, type RetrievedPost } from '../../src/lib/linkedin/types';
-import { ingestLinkedInUrl, RETRIEVAL_MAX_ATTEMPTS } from '../../src/lib/services/ingest-source';
+import { ingestLinkedInUrl, nextScheduledRetrievalRetry, RETRIEVAL_MAX_ATTEMPTS } from '../../src/lib/services/ingest-source';
 import { processCapture, submitCapture } from '../../src/lib/services/capture';
 import { handleTelegramUpdate } from '../../src/lib/telegram/service';
 import { fakeAI, RecordingMessenger, SAMPLE_TEXT, seedStore, SITE_URL, testEnv } from '../helpers';
@@ -48,6 +48,12 @@ function messageUpdate(updateId: number, text: string, userId = 111) {
 }
 
 describe('URL-first LinkedIn ingestion', () => {
+  it('schedules automatic retries for the next daily recovery run with a cron-start grace window', () => {
+    expect(nextScheduledRetrievalRetry(new Date('2026-11-18T02:00:00.000Z'))).toBe('2026-11-18T03:00:00.000Z');
+    expect(nextScheduledRetrievalRetry(new Date('2026-11-18T02:58:00.000Z'))).toBe('2026-11-19T03:00:00.000Z');
+    expect(nextScheduledRetrievalRetry(new Date('2026-11-18T04:00:00.000Z'))).toBe('2026-11-19T03:00:00.000Z');
+  });
+
   it('persists the URL, retrieves content, keeps provenance and creates an opening', async () => {
     const { store } = await seedStore();
     const ai = fakeAI();
@@ -371,7 +377,7 @@ describe('Telegram URL-first flow and manual fallback', () => {
       expect(store.captures[0].normalized_source_key).toMatch(/^linkedin:\d{10,}$/);
       expect(store.captures[0].status).toBe('awaiting_text');
       expect(ai.calls).toHaveLength(0);
-      expect(messenger.sent.some((entry) => /send the copied post text/i.test(entry.text))).toBe(true);
+      expect(messenger.sent.some((entry) => /retrieval_not_authorised/i.test(entry.text))).toBe(true);
     },
   );
 
@@ -409,7 +415,7 @@ describe('Telegram URL-first flow and manual fallback', () => {
     expect(store.captures[0].source_url).toBe(POST_URL);
   });
 
-  it('asks for copied text after a failed retrieval and then extracts from the same capture', async () => {
+  it('keeps the capture visible after failed retrieval while allowing optional manual text', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();
     const deps = { store, ai: fakeAI(), env: testEnv(), messenger };
@@ -421,7 +427,9 @@ describe('Telegram URL-first flow and manual fallback', () => {
 
     const failureMessage = messenger.sent.find((m) => m.text.includes('⚠️'));
     expect(failureMessage).toBeTruthy();
-    expect(failureMessage?.text).toContain('Send the copied post text');
+    expect(failureMessage?.text).toContain('login_required');
+    expect(failureMessage?.text).toContain('The capture and original URL are preserved');
+    expect(failureMessage?.text).not.toContain('Send the copied post text');
     expect(store.captures[0].status).toBe('retrieval_failed');
     expect(store.captures[0].source_url).toBe(POST_URL);
     expect(store.opportunities).toHaveLength(0);

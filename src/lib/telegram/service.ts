@@ -44,11 +44,9 @@ const HELP = [
   'I save the link first, retrieve the post when authorised, extract every',
   'opening separately, and show a preview with approve/reject buttons.',
   '',
-  'If LinkedIn requires sign-in or retrieval is not authorised, the link is',
-  'kept and I will ask for the copied post text once:',
-  '',
-  '<code>https://www.linkedin.com/posts/...</code>',
-  '<code>We are hiring a Founder Associate...</code>',
+  'If retrieval fails, the link stays saved and I report the reason. Transient',
+  'failures are retried automatically; an admin can retry from the capture page.',
+  'Sending copied text is optional, not required for the normal link workflow.',
   '',
   'Commands: /help, /id',
 ].join('\n');
@@ -258,9 +256,16 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
         const review = outcome.capture
           ? `${env.siteUrl}/admin/captures/${outcome.capture.id}`
           : `${env.siteUrl}/admin/capture`;
+        const retryState = outcome.capture?.next_retry_at
+          ? `Automatic retry scheduled: ${outcome.capture.next_retry_at}.`
+          : outcome.capture && outcome.capture.retrieval_attempts >= 4
+            ? 'Automatic retries are exhausted; an admin can retry from the capture page.'
+            : outcome.capture
+              ? 'No automatic retry is scheduled for this failure; an admin can retry from the capture page.'
+              : 'The capture could not be saved; please resend the link.';
         await messenger.sendMessage(
           chatId,
-          `⚠️ ${escapeHtml(outcome.message)}\n\nSend the copied post text in one message within 30 minutes and I will extract every opening.\n\n${escapeHtml(review)}`,
+          `⚠️ Retrieval failed (${escapeHtml(outcome.errorCode)}): ${escapeHtml(outcome.message)}\n\n${outcome.capture ? 'The capture and original URL are preserved.' : ''} ${escapeHtml(retryState)}\n\nCapture status: ${escapeHtml(review)}`,
           { parse_mode: 'HTML', disable_web_page_preview: true },
         );
         return;

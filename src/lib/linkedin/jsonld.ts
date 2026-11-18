@@ -227,7 +227,7 @@ export function createRetrievalService(env: Pick<AppEnv, 'siteUrl' | 'linkedinJs
       }
       return retrievalFailure(
         'retrieval_not_authorised',
-        'Automatic LinkedIn retrieval is disabled until authorised. The URL was saved; send the copied post text to extract it.',
+        'Automatic LinkedIn retrieval is disabled until authorised. The capture and original URL are saved; retry after an authorised retrieval method is configured.',
       );
     };
   }

@@ -8,6 +8,8 @@ import { ServiceError } from './errors';
 
 /** Initial attempt plus three automated retries. Manual retries are exempt. */
 export const RETRIEVAL_MAX_ATTEMPTS = 4;
+const RETRIEVAL_CRON_UTC_HOUR = 3;
+const CRON_START_GRACE_MS = 5 * 60_000;
 
 export type IngestInput = {
   sourceUrl: string;
@@ -29,38 +31,41 @@ export type IngestResult =
       duplicate?: { captureId: string; opportunityId: string | null; status: string };
     };
 
-function backoffMs(attempt: number): number {
-  if (attempt <= 1) return 60_000;
-  if (attempt === 2) return 5 * 60_000;
-  return 15 * 60_000;
+/** vercel.json runs this recovery worker once daily at 03:00 UTC. Schedule
+ * failures for the next run so the admin never sees a retry time the worker
+ * cannot meet. The grace window avoids racing a cron run already starting. */
+export function nextScheduledRetrievalRetry(now = new Date()): string {
+  let next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), RETRIEVAL_CRON_UTC_HOUR);
+  if (next <= now.getTime() + CRON_START_GRACE_MS) next += 24 * 60 * 60_000;
+  return new Date(next).toISOString();
 }
 
 export function retrievalMessage(code: RetrievalFailure['errorCode']): string {
   switch (code) {
     case 'retrieval_not_authorised':
-      return 'Automatic LinkedIn retrieval is not authorised yet. I saved the link. Send the copied post text in one message and I will extract every opening.';
+      return 'Automatic LinkedIn retrieval is not authorised. The capture and original URL are saved; retry after an authorised retrieval method is configured.';
     case 'login_required':
-      return 'LinkedIn requires sign-in for this post, so it cannot be retrieved publicly. The link is saved. Send the copied post text and I will extract it.';
+      return 'LinkedIn requires sign-in for this post. No login bypass was attempted; the capture and original URL are saved.';
     case 'not_found':
-      return 'LinkedIn reports that this post does not exist or was deleted. The link is saved. Send the copied post text if you still have it.';
+      return 'LinkedIn reports that this post does not exist or was deleted. The capture and original URL are saved.';
     case 'no_content':
-      return 'The page was retrieved but contained no public post text (it may be image-only). The link is saved. Send the copied post text and I will extract it.';
+      return 'The page contained no extractable public post text (it may be image-only). The capture and original URL are saved.';
     case 'rate_limited':
-      return 'LinkedIn rate-limited retrieval. The link is saved and I will retry automatically. You can also send the copied post text now.';
+      return 'LinkedIn rate-limited retrieval. The capture is saved and an automatic retry is scheduled.';
     case 'timeout':
-      return 'LinkedIn did not respond in time. The link is saved and I will retry automatically.';
+      return 'LinkedIn did not respond before the retrieval deadline. The capture is saved and an automatic retry is scheduled.';
     case 'network_error':
-      return 'LinkedIn could not be reached. The link is saved and I will retry automatically.';
+      return 'LinkedIn could not be reached. The capture is saved and an automatic retry is scheduled.';
     case 'http_error':
-      return 'LinkedIn returned an error. The link is saved and I will retry automatically.';
+      return 'LinkedIn returned a server error. The capture is saved and an automatic retry is scheduled.';
     case 'too_large':
-      return 'The source page is too large to retrieve safely. The link is saved. Send the copied post text instead.';
+      return 'The source page exceeded the safe retrieval size limit. The capture and original URL are saved.';
     case 'blocked_host':
-      return 'Retrieval was redirected outside LinkedIn and was stopped for safety. The link is saved. Send the copied post text.';
+      return 'Retrieval was redirected outside LinkedIn and was stopped for safety. The capture and original URL are saved.';
     case 'unsupported_url':
-      return 'Only LinkedIn post URLs can be ingested. Send a link to a specific LinkedIn post.';
+      return 'This URL did not resolve to a specific LinkedIn post. The capture and original URL are saved for review.';
     default:
-      return 'The post could not be retrieved. The link is saved. Send the copied post text and I will extract it.';
+      return 'The post could not be retrieved. The capture and original URL are saved for retry.';
   }
 }
 
@@ -81,7 +86,7 @@ async function persistFailure(
     retrieval_http_status: failure.httpStatus,
     retrieval_error_code: failure.errorCode,
     retrieval_attempts: attempts,
-    next_retry_at: shouldRetry ? new Date(Date.now() + backoffMs(attempts)).toISOString() : null,
+    next_retry_at: shouldRetry ? nextScheduledRetrievalRetry() : null,
     error_message: failure.message,
     processing_started_at: null,
   });

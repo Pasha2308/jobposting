@@ -99,9 +99,9 @@ There are no demo jobs in production.
   adapter, extracts every opening separately, and previews each draft.
 - If the post cannot be retrieved through an authorised method, the URL is kept,
   the exact reason is recorded, the capture stays visible in the admin workspace,
-  and the bot asks once for the copied post text (manual fallback).
-- URL plus copied text in one message still works and is the fallback whenever
-  retrieval is unavailable or not authorised.
+  transient failures are queued for automatic retry, and admins can retry it.
+- URL plus copied text in one message remains an optional fallback; the normal
+  workflow starts with a URL only.
 - Inline buttons: **Approve & Publish**, **Save Draft**, **Reject**,
   **Regenerate Comment**, **Open Admin Review**.
 - Webhook secret verification, numeric user-ID allowlist, update-ID deduplication,
@@ -149,7 +149,7 @@ Request flow for a capture:
 ```
 One LinkedIn post URL
   → ingestLinkedInUrl (validate, normalise, dedupe, persist the URL first)
-  → authorised retrieval (or manual copied text when unavailable)
+  → authorised retrieval (or visible failure and retry queue when unavailable)
   → processCapture (claim, Groq, Zod validation, per-opening mapping)
   → one draft opportunity per opening in Pending review
   → admin / Telegram review
@@ -647,7 +647,7 @@ webhook rejects a bad secret/malformed update, H duplicate source is blocked.
 | Build fails on Vercel | `npm run build` locally; Vercel uses Node 22 even if local Node is newer |
 | E2E can't start Chromium | `npx playwright install chromium` |
 | Migration rejected | Run `0001_init.sql` through `0006_retrieval_queue.sql` in order on a fresh database |
-| LinkedIn URL saved but extraction does not run | Retrieval is disabled by default. Send the copied post text, or enable both retrieval flags only when authorised |
+| LinkedIn URL saved but extraction does not run | Check the capture's exact retrieval reason and retry status. Retrieval is disabled by default; enable both retrieval flags only when authorised |
 | Recovery cron returns 401 | `CRON_SECRET` is unset on the project; set it and redeploy |
 
 ---
@@ -721,13 +721,15 @@ for the asset inventory, tokens and accessibility rules. Official assets live in
 
 - URL-only LinkedIn retrieval is implemented but **disabled by default** pending
   legal/contractual authorisation. Until both retrieval flags are enabled, a
-  LinkedIn URL is preserved and the bot asks for the copied post text.
+  LinkedIn URL is preserved and marked with the retrieval configuration failure;
+  admins can retry after configuring authorised access. Manual text is optional.
 - Restricted or sign-in-only posts cannot be retrieved without the prohibited use
   of a personal LinkedIn session. They always fall back to manual text.
 - Image-only posts expose no public text; they are reported as `no_content` rather
   than guessed.
-- Vercel Hobby allows one cron run per day. Frequent automatic retries require Pro
-  or a manual **Retry retrieval** from the admin workspace.
+- Vercel Hobby allows one cron run per day. Transient retries are scheduled for
+  that next daily run; frequent automatic retries require Pro. Manual **Retry
+  retrieval** remains available from the admin workspace.
 - ATS sync (`company_sources`) is schema-ready but intentionally not automated;
   there is no ATS integration UI yet.
 - The in-process rate limiter is per serverless instance. For strict global limits,
