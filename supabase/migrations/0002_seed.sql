@@ -33,7 +33,7 @@ insert into app_settings (key, value) values (
   'app',
   jsonb_build_object(
     'site_name', 'Hustler Community Opportunities',
-    'site_url', 'https://hustlercommunity-opportunities.vercel.app',
+    'site_url', 'https://jobposting-nine.vercel.app',
     'verification_reminder_days', 14,
     'source_retention_days', 90,
     'public_submissions_enabled', true,

@@ -135,15 +135,15 @@ if (!closed) {
           <header class="detail__head">
             <div class="detail__eyebrow">
               {o.category ? (
-                <a class="chip chip--teal" href={`/categories/${o.category.slug}`}>{o.category.name}</a>
+                <a class="chip chip--brand" href={`/categories/${o.category.slug}`}>{o.category.name}</a>
               ) : (
                 <span class="chip chip--muted">Uncategorised</span>
               )}
-              <span class:list={['chip', closed ? 'chip--muted' : 'chip--orange']}>{fresh}</span>
+              <span class:list={['chip', closed ? 'chip--muted' : 'chip--brand']}>{fresh}</span>
               <span class="chip">
                 <Icon name="clock" size={11} /> Discovered {relativeTime(o.discovered_at).toLowerCase()}
               </span>
-              {o.is_featured && !closed && <span class="chip chip--orange">Featured</span>}
+              {o.is_featured && !closed && <span class="chip chip--brand">Featured</span>}
             </div>
 
             <h1>{o.title}</h1>
@@ -156,7 +156,7 @@ if (!closed) {
                 <span>{o.company?.name ?? 'Company not specified'}</span>
               )}
               {o.company?.verified ? (
-                <span class="chip chip--teal"><Icon name="shield" size={10} /> Verified company</span>
+                <span class="chip chip--brand"><Icon name="shield" size={10} /> Verified company</span>
               ) : (
                 <span class="chip chip--muted">Company not yet verified</span>
               )}

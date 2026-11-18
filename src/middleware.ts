@@ -1,7 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { resolveEnv } from './lib/env';
 import { resolveAdminSession } from './lib/auth';
-import { jsonResponse } from './lib/http';
+import { isSecureRequest, jsonResponse } from './lib/http';
 
 /**
  * Resolves runtime env for every request and guards the entire admin workspace
@@ -18,7 +18,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const isLoginApi = url.pathname === '/api/admin/login';
 
   if ((isAdminApi && !isLoginApi) || (isAdminPage && !isLoginPage)) {
-    const session = await resolveAdminSession(env, context.cookies, url.protocol === 'https:');
+    const session = await resolveAdminSession(env, context.cookies, isSecureRequest(context.request));
     if (!session) {
       if (isAdminApi) {
         return jsonResponse({ error: 'Unauthorised. Sign in to the admin workspace.', code: 'unauthorised' }, 401);

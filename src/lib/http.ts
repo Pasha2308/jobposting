@@ -55,20 +55,90 @@ export function formBool(form: FormData, key: string): boolean {
 }
 
 /**
- * Same-origin enforcement for state-changing admin requests. This complements
- * SameSite=Lax cookies and protects against cross-site form posts.
+ * Origins a state-changing request may legitimately come from.
+ *
+ * Astro's built-in `security.checkOrigin` compares the browser `Origin` header
+ * with the URL Astro reconstructed. Behind a TLS-terminating proxy (Vercel,
+ * Cloudflare, a load balancer) that reconstructed URL can be `http://…` while
+ * the browser correctly sends `https://…`, which rejects valid admin logins
+ * with "Cross-site POST form submissions are forbidden". This helper accepts
+ * the configured public origin and the deployment's own forwarded host, and
+ * nothing else — so it stays a real same-origin check while tolerating proxies.
+ */
+export function allowedRequestOrigins(request: Request, env: AppEnv): Set<string> {
+  const allowed = new Set<string>();
+  const add = (value: string | null | undefined): void => {
+    if (!value) return;
+    try {
+      allowed.add(new URL(value).origin);
+    } catch {
+      // Ignore malformed values; they simply are not allowed.
+    }
+  };
+
+  add(request.url);
+  add(env.siteUrl);
+
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const host = (forwardedHost ?? request.headers.get('host') ?? '').split(',')[0]?.trim();
+  if (host) {
+    const forwardedProto = (request.headers.get('x-forwarded-proto') ?? '').split(',')[0]?.trim().toLowerCase();
+    let proto = forwardedProto === 'http' || forwardedProto === 'https' ? forwardedProto : '';
+    if (!proto) {
+      try {
+        proto = new URL(request.url).protocol.replace(':', '');
+      } catch {
+        proto = '';
+      }
+    }
+    if (proto) add(`${proto}://${host}`);
+    // Proxies terminate TLS and may pass an internal http hop; the public origin
+    // for this same host is still https in production.
+    if (env.isProduction) add(`https://${host}`);
+  }
+
+  return allowed;
+}
+
+/**
+ * True when the browser's connection to the deployment is HTTPS, accounting for
+ * a TLS-terminating proxy that reports the original scheme in
+ * `x-forwarded-proto`. Used to decide the `Secure` cookie flag.
+ */
+export function isSecureRequest(request: Request): boolean {
+  const forwarded = (request.headers.get('x-forwarded-proto') ?? '').split(',')[0]?.trim().toLowerCase();
+  if (forwarded === 'https') return true;
+  if (forwarded === 'http') return false;
+  try {
+    return new URL(request.url).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Same-origin enforcement for state-changing requests. This complements
+ * SameSite=Lax cookies and protects against cross-site form posts. It runs in
+ * every mutating route because the built-in Astro check is disabled: it cannot
+ * account for a TLS-terminating proxy and blocked production logins.
  */
 export function assertSameOrigin(request: Request, env: AppEnv): void {
   const origin = request.headers.get('origin');
-  const allowed = new Set<string>([new URL(request.url).origin, new URL(env.siteUrl).origin]);
   if (origin) {
-    if (!allowed.has(origin)) {
+    const allowed = allowedRequestOrigins(request, env);
+    let normalized = origin.trim();
+    try {
+      normalized = new URL(normalized).origin;
+    } catch {
+      // Keep the raw value; it will not match.
+    }
+    if (!allowed.has(normalized)) {
       throw new ServiceError('forbidden_origin', 'Cross-origin request blocked.', 403);
     }
     return;
   }
   const fetchSite = request.headers.get('sec-fetch-site');
-  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+  if (fetchSite !== 'same-origin') {
     throw new ServiceError('forbidden_origin', 'Cross-origin request blocked.', 403);
   }
 }

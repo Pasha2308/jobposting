@@ -1,14 +1,15 @@
 import type { APIRoute } from 'astro';
 import { trackPublicEvent } from '../../../lib/services/public';
 import { requireStore } from '../../../lib/services/context';
-import { apiError, jsonResponse, readJson } from '../../../lib/http';
-import { rateLimit } from '../../../lib/rate-limit';
+import { apiError, assertSameOrigin, jsonResponse, readJson } from '../../../lib/http';
+import { clientKey, rateLimit } from '../../../lib/rate-limit';
 import { ServiceError } from '../../../lib/services/errors';
 
 export const POST: APIRoute = async (context) => {
   try {
+    assertSameOrigin(context.request, context.locals.env);
     const limited = rateLimit(
-      `public-track:${context.request.headers.get('cf-connecting-ip') ?? 'unknown'}`,
+      clientKey(context.request, 'public-track'),
       120,
       60_000,
     );

@@ -28,8 +28,8 @@ const structuredData = [
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: 'Hustler Community',
-    url: 'https://hustlerscommunity.in/',
-    sameAs: ['https://www.linkedin.com/company/hustlercommunity'],
+    url: env.siteUrl,
+    sameAs: ['https://www.linkedin.com/company/hustlercommunity/home'],
   },
 ];
 
@@ -56,7 +56,7 @@ const reviewed = home.totalPublished > 0;
   <section class="hero">
     <div class="container hero__grid">
       <div>
-        <span class="eyebrow eyebrow--orange">Startup opportunities · Hustler Community</span>
+        <span class="eyebrow eyebrow--brand">Startup opportunities · Hustler Community</span>
         <h1>
           <span class="hero__line">Find Your Next</span>
           <span class="hero__line"><em>Opportunity.</em></span>
@@ -197,7 +197,7 @@ const reviewed = home.totalPublished > 0;
     <div class="container">
       <div class="section-head">
         <div>
-          <span class="eyebrow eyebrow--orange">Latest opportunities</span>
+          <span class="eyebrow eyebrow--brand">Latest opportunities</span>
           <h2>Newly published roles</h2>
           <p>Fresh listings from the review queue. Every card links to the original source and a real application route.</p>
         </div>
@@ -342,7 +342,7 @@ const reviewed = home.totalPublished > 0;
     <div class="container">
       <div class="section-head">
         <div>
-          <span class="eyebrow eyebrow--orange">How it works</span>
+          <span class="eyebrow eyebrow--brand">How it works</span>
           <h2>Curated, not scraped into a pile</h2>
           <p>A small, deliberate pipeline keeps the directory useful for candidates and fair to the teams hiring.</p>
         </div>
@@ -388,8 +388,12 @@ const reviewed = home.totalPublished > 0;
               roles, real sources, reviewed details, and a direct line to the team hiring.
             </p>
             <div class="brand-links">
-              <a href="https://hustlerscommunity.in/" target="_blank" rel="noopener noreferrer">
-                Join the community <Icon name="arrow-up-right" size={13} />
+              <a
+                href="https://www.linkedin.com/company/hustlercommunity/home"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Join the community on LinkedIn <Icon name="arrow-up-right" size={13} />
               </a>
               <a href="/about">About this directory <Icon name="arrow-right" size={13} /></a>
               <a href="/submit">Submit an opportunity <Icon name="arrow-right" size={13} /></a>

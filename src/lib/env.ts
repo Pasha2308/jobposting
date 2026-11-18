@@ -30,7 +30,19 @@ export type AppEnv = {
   isTest: boolean;
 };
 
-const DEFAULT_SITE_URL = 'https://hustlercommunity-opportunities.vercel.app';
+const DEFAULT_SITE_URL = 'https://jobposting-nine.vercel.app';
+
+/**
+ * Vercel exposes its own hostnames at runtime. Preferring them over a hard-coded
+ * default keeps canonical URLs and the CSRF origin check correct on whatever
+ * domain the project is actually served from.
+ */
+function deploymentSiteUrl(read: (key: string) => string | undefined): string | null {
+  const host = read('VERCEL_PROJECT_PRODUCTION_URL') || read('VERCEL_URL');
+  if (!host) return null;
+  const normalized = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return normalized ? `https://${normalized}` : null;
+}
 
 function importMetaEnv(): RuntimeEnv {
   try {
@@ -61,7 +73,12 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     return value == null || value === '' ? undefined : String(value);
   };
 
-  const siteUrl = (read('PUBLIC_SITE_URL') || read('SITE_URL') || DEFAULT_SITE_URL).replace(/\/+$/, '');
+  const siteUrl = (
+    read('PUBLIC_SITE_URL') ||
+    read('SITE_URL') ||
+    deploymentSiteUrl(read) ||
+    DEFAULT_SITE_URL
+  ).replace(/\/+$/, '');
   const adminIds = (read('TELEGRAM_ADMIN_USER_IDS') || '')
     .split(/[,\s]+/)
     .map((value) => Number(value.trim()))

@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { createPublicReport } from '../../../lib/services/public';
 import { requireStore } from '../../../lib/services/context';
-import { apiError, jsonResponse, readJson } from '../../../lib/http';
-import { rateLimit } from '../../../lib/rate-limit';
+import { apiError, assertSameOrigin, jsonResponse, readJson } from '../../../lib/http';
+import { clientKey, rateLimit } from '../../../lib/rate-limit';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { ServiceError } from '../../../lib/services/errors';
 
@@ -19,11 +19,8 @@ export const POST: APIRoute = async (context) => {
   const form = isForm(context.request);
   const env = context.locals.env;
   try {
-    const limited = rateLimit(
-      `public-report:${context.request.headers.get('cf-connecting-ip') ?? 'unknown'}`,
-      5,
-      10 * 60_000,
-    );
+    assertSameOrigin(context.request, env);
+    const limited = rateLimit(clientKey(context.request, 'public-report'), 5, 10 * 60_000);
     if (!limited.allowed) throw new ServiceError('rate_limited', 'Too many reports. Please try again later.', 429);
 
     const body = (await readJson(context.request)) as Record<string, unknown>;

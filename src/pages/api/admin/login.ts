@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { signInAdmin, setSessionCookies } from '../../../lib/auth';
-import { apiError, assertSameOrigin, jsonResponse, readJson, safeNextPath } from '../../../lib/http';
+import { apiError, assertSameOrigin, isSecureRequest, jsonResponse, readJson, safeNextPath } from '../../../lib/http';
 import { ServiceError } from '../../../lib/services/errors';
-import { rateLimit } from '../../../lib/rate-limit';
+import { clientKey, rateLimit } from '../../../lib/rate-limit';
 
 function redirect(path: string): Response {
   return new Response(null, { status: 303, headers: { location: path } });
@@ -12,7 +12,7 @@ export const POST: APIRoute = async (context) => {
   const isJson = (context.request.headers.get('content-type') ?? '').includes('application/json');
   try {
     assertSameOrigin(context.request, context.locals.env);
-    const limited = rateLimit(`login:${context.request.headers.get('cf-connecting-ip') ?? 'local'}`, 10, 15 * 60_000);
+    const limited = rateLimit(clientKey(context.request, 'login'), 10, 15 * 60_000);
     if (!limited.allowed) {
       throw new ServiceError('rate_limited', 'Too many sign-in attempts. Try again in a few minutes.', 429);
     }
@@ -30,7 +30,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     const result = await signInAdmin(context.locals.env, email, password);
-    setSessionCookies(context.cookies, result.tokens, new URL(context.request.url).protocol === 'https:');
+    setSessionCookies(context.cookies, result.tokens, isSecureRequest(context.request));
     if (isJson) return jsonResponse({ ok: true, redirect: next });
     return redirect(next);
   } catch (error) {

@@ -19,13 +19,13 @@ const {
   description,
   indexable = true,
   ogType = 'website',
-  ogImage = '/brand/wordmark.png',
+  ogImage = '/brand/og-image.png',
   structuredData = [],
   bodyClass = '',
 } = Astro.props;
 
 const env = Astro.locals.env;
-const siteUrl = env?.siteUrl ?? Astro.site?.toString() ?? 'https://hustlercommunity-opportunities.vercel.app';
+const siteUrl = env?.siteUrl ?? Astro.site?.toString() ?? 'https://jobposting-nine.vercel.app';
 const canonical = new URL(Astro.url.pathname, siteUrl).toString();
 const fullTitle = title.includes('Hustler Community') ? title : `${title} · Hustler Community Opportunities`;
 const image = new URL(ogImage, siteUrl).toString();
@@ -42,8 +42,10 @@ const robots = indexable ? 'index,follow,max-image-preview:large' : 'noindex,fol
     <link rel="canonical" href={canonical} />
     <meta name="robots" content={robots} />
     <meta name="theme-color" content="#050505" />
-    <link rel="icon" href="/brand/h-mark.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/brand/wordmark.png" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="Hustler Community Opportunities" />
@@ -51,10 +53,14 @@ const robots = indexable ? 'index,follow,max-image-preview:large' : 'noindex,fol
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={image} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Hustler Community — Build. Ship. Get Real." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={image} />
+    <meta name="twitter:image:alt" content="Hustler Community — Build. Ship. Get Real." />
 
     <link rel="sitemap" href="/sitemap.xml" />
     <slot name="head" />

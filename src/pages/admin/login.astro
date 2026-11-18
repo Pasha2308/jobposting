@@ -19,7 +19,8 @@ const signedOut = url.searchParams.get('signed_out') === '1';
     <title>Admin sign in · Hustler Community Opportunities</title>
     <meta name="robots" content="noindex,nofollow" />
     <meta name="theme-color" content="#050505" />
-    <link rel="icon" href="/brand/h-mark.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
   </head>
   <body class="admin-body">
     <div class="login-wrap">
@@ -41,6 +42,13 @@ const signedOut = url.searchParams.get('signed_out') === '1';
 
       <section class="login-form-wrap">
         <div class="login-card">
+          <a class="login-mobile-brand" href="/" aria-label="Hustler Community Opportunities — home">
+            <img src="/brand/logo-mark.png" alt="" width="36" height="36" />
+            <span>
+              <strong>Hustler Community</strong>
+              <small>Opportunities</small>
+            </span>
+          </a>
           <a href="/" class="tiny muted" style="display:inline-flex;align-items:center;gap:0.4rem">
             <Icon name="arrow-left" size={12} /> Back to the public directory
           </a>

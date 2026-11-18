@@ -47,7 +47,4 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-error.log*
 
-# local research assets that are not shipped (kept out of the bundle)
-brand-assets/h-mark.png
-
 .vercel

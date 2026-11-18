@@ -41,7 +41,7 @@ const sourceDateVerified = Boolean(o.original_posted_at && o.last_verified_at);
     <span>{o.company?.name ?? 'Company not specified'}</span>
     {
       o.company?.verified && (
-        <span class="chip chip--teal" style="margin-left:0.25rem;font-size:0.5625rem">
+        <span class="chip chip--brand" style="margin-left:0.25rem;font-size:0.5625rem">
           <Icon name="shield" size={10} /> Verified company
         </span>
       )

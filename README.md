@@ -184,7 +184,7 @@ Telegram webhook.
 
 ```
 .
-├── public/brand/                 Official logo/wordmark/community artwork
+├── public/brand/                 Official logo, wordmark and social assets
 ├── src/
 │   ├── components/               Public + admin Astro components
 │   │   └── admin/                React islands (editor, comment studio)
@@ -710,9 +710,10 @@ Both paths are logged to `activity_logs`.
 
 ## Brand
 
-The palette, typography, logo usage and voice come from the real Hustler Community
-brand. See [`docs/BRAND.md`](docs/BRAND.md) for the audit, official assets, tokens
-and accessibility rules. Official assets live in `public/brand/`.
+The palette, typography, logo usage and voice come from the official Hustler
+Community brand assets supplied by the organisation. See [`docs/BRAND.md`](docs/BRAND.md)
+for the asset inventory, tokens and accessibility rules. Official assets live in
+`public/brand/`; favicons and the social preview are generated from those files.
 
 ---
 

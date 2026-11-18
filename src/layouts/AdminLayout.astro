@@ -71,14 +71,25 @@ const mobileItems = groups[0].items.filter((item) => ['overview', 'capture', 'op
     <title>{fullTitle}</title>
     <meta name="robots" content="noindex,nofollow" />
     <meta name="theme-color" content="#050505" />
-    <link rel="icon" href="/brand/h-mark.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/brand/wordmark.png" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
   </head>
   <body class:list={['admin-body', bodyClass]}>
     <div class="admin-shell" data-admin-shell>
       <aside class="admin-sidebar" id="admin-sidebar" aria-label="Admin navigation">
-        <a class="brand" href="/admin" aria-label="Hustler Community admin home">
-          <img src="/brand/wordmark.png" alt="Hustler Community" style="height:26px;width:auto" />
+        <a class="brand admin-brand" href="/admin" aria-label="Hustler Community admin home">
+          <img
+            src="/brand/logo-mark.png"
+            alt=""
+            width="30"
+            height="30"
+            style="height:30px;width:30px;flex-shrink:0"
+          />
+          <span class="brand__text">
+            <span class="brand__name">Hustler Community</span>
+            <span class="brand__sub">Admin</span>
+          </span>
         </a>
 
         {groups.map((group) => (
@@ -148,7 +159,7 @@ const mobileItems = groups[0].items.filter((item) => ['overview', 'capture', 'op
           )}
           <div class="admin-page-head">
             <div>
-              <span class="eyebrow eyebrow--orange">{eyebrow}</span>
+              <span class="eyebrow eyebrow--brand">{eyebrow}</span>
               <h1>{title}</h1>
               {description && <p>{description}</p>}
             </div>
