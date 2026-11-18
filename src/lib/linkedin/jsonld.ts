@@ -1,6 +1,6 @@
 import type { AppEnv } from '../env';
 import { isLinkedInRetrievalEnabled } from '../env';
-import { canonicalLinkedInPostUrl, extractLinkedInPostId } from '../domain/url';
+import { canonicalLinkedInPostUrl, extractLinkedInPostId, isLinkedInShortPostUrl } from '../domain/url';
 import {
   DEFAULT_TIMEOUT_MS,
   MAX_REDIRECTS,
@@ -60,7 +60,13 @@ export function createJsonLdAdapter(opts: JsonLdOptions): RetrievalFn {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return async (rawUrl: string): Promise<RetrievalResult> => {
-    const target = validateRetrievalTarget(rawUrl);
+    let resolvedUrl = rawUrl;
+    if (isLinkedInShortPostUrl(rawUrl)) {
+      const resolved = await resolveShortPostUrl(rawUrl, fetchImpl, timeoutMs, opts.siteUrl);
+      if (!resolved.ok) return resolved.failure;
+      resolvedUrl = resolved.url;
+    }
+    const target = validateRetrievalTarget(resolvedUrl);
     if (!target.ok) return target.failure;
 
     let current = target.url;
@@ -162,12 +168,61 @@ export function createJsonLdAdapter(opts: JsonLdOptions): RetrievalFn {
   };
 }
 
+/** Resolve only the official lnkd.in /p/ share path, following HTTPS redirects
+ * on LinkedIn hosts. The response body is never read; post retrieval remains
+ * subject to the existing authorization gate and target validation. */
+async function resolveShortPostUrl(
+  rawUrl: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+  siteUrl: string,
+): Promise<{ ok: true; url: string } | { ok: false; failure: ReturnType<typeof retrievalFailure> }> {
+  let current = new URL(rawUrl);
+  const deadline = Date.now() + timeoutMs;
+  for (let hop = 0; hop < MAX_REDIRECTS; hop += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { ok: false, failure: retrievalFailure('timeout', 'LinkedIn share link resolution timed out.', { method: 'jsonld', retryable: true }) };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    let response: Response;
+    try {
+      response = await fetchImpl(current.toString(), {
+        method: 'GET', redirect: 'manual', signal: controller.signal,
+        headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': userAgent(siteUrl) },
+      });
+    } catch (error) {
+      const aborted = error instanceof Error && error.name === 'AbortError';
+      return { ok: false, failure: retrievalFailure(aborted ? 'timeout' : 'network_error', 'Could not resolve the LinkedIn share link.', { method: 'jsonld', retryable: true }) };
+    } finally { clearTimeout(timer); }
+
+    if (response.status < 300 || response.status >= 400) {
+      return { ok: false, failure: retrievalFailure('unsupported_url', 'The LinkedIn share link did not redirect to a post URL.') };
+    }
+    const redirect = nextRedirect(current, response);
+    if (!redirect.ok) return { ok: false, failure: redirect.failure };
+    const target = redirect.url;
+    const targetHost = target.hostname.toLowerCase();
+    if (targetHost === 'lnkd.in') {
+      if (!isLinkedInShortPostUrl(target.toString())) return { ok: false, failure: retrievalFailure('blocked_host', 'LinkedIn returned an unsupported short-link path.') };
+      current = target;
+      continue;
+    }
+    if (!['linkedin.com', 'www.linkedin.com', 'm.linkedin.com'].includes(targetHost)) {
+      return { ok: false, failure: retrievalFailure('blocked_host', 'LinkedIn share link redirected outside LinkedIn.') };
+    }
+    const activityId = extractLinkedInPostId(target);
+    if (!activityId) return { ok: false, failure: retrievalFailure('unsupported_url', 'The LinkedIn share link did not resolve to a specific post.') };
+    return { ok: true, url: canonicalLinkedInPostUrl(activityId) };
+  }
+  return { ok: false, failure: retrievalFailure('blocked_host', 'Too many redirects while resolving the LinkedIn share link.') };
+}
+
 /** Resolves the configured adapter. Disabled is the safe, default state. */
 export function createRetrievalService(env: Pick<AppEnv, 'siteUrl' | 'linkedinJsonLdEnabled' | 'linkedinRetrievalAuthorised'>): RetrievalFn {
   if (!isLinkedInRetrievalEnabled(env as AppEnv)) {
     return async (rawUrl: string) => {
       const activityId = extractLinkedInPostId(rawUrl);
-      if (!activityId) {
+      if (!activityId && !isLinkedInShortPostUrl(rawUrl)) {
         return retrievalFailure('unsupported_url', 'Only LinkedIn post/update URLs can be ingested.');
       }
       return retrievalFailure(

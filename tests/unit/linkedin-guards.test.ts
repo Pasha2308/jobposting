@@ -167,6 +167,45 @@ describe('createJsonLdAdapter', () => {
     if (!result.ok) expect(result.errorCode).toBe('blocked_host');
   });
 
+  it('resolves lnkd.in /p/ redirects to a specific LinkedIn post before retrieval', async () => {
+    const calls: string[] = [];
+    const adapter = createJsonLdAdapter({
+      siteUrl: SITE,
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.startsWith('https://lnkd.in/')) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: 'https://www.linkedin.com/posts/acme_founder-associate-1234567890' },
+          });
+        }
+        return new Response(HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+      }) as typeof fetch,
+    });
+    const result = await adapter('https://lnkd.in/p/dtEKwVfK');
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([
+      'https://lnkd.in/p/dtEKwVfK',
+      'https://www.linkedin.com/feed/update/urn:li:activity:1234567890',
+    ]);
+  });
+
+  it('does not follow an lnkd.in redirect to a non-LinkedIn host', async () => {
+    const calls: string[] = [];
+    const adapter = createJsonLdAdapter({
+      siteUrl: SITE,
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        calls.push(String(input));
+        return new Response(null, { status: 302, headers: { location: 'https://evil.test/post' } });
+      }) as typeof fetch,
+    });
+    const result = await adapter('https://lnkd.in/p/dtEKwVfK');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errorCode).toBe('blocked_host');
+    expect(calls).toHaveLength(1);
+  });
+
   it('classifies 404, rate limits and non-HTML responses', async () => {
     const make = (response: () => Response) =>
       createJsonLdAdapter({ siteUrl: SITE, fetchImpl: (async () => response()) as typeof fetch });

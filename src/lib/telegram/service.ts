@@ -299,7 +299,7 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
   let capture: SourceCapture;
   try {
     const submitted = await submitCapture(store, {
-      sourceUrl: normalizedUrl,
+      sourceUrl: urlCandidate,
       rawText: bodyWithoutUrl,
       sourceType: 'linkedin_post',
       actor: `telegram:${userId}`,

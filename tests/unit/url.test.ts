@@ -4,6 +4,7 @@ import {
   extractLinkedInPostId,
   isSafeEmail,
   isLinkedInPostUrl,
+  isLinkedInShortPostUrl,
   isValidHttpUrl,
   normalizeEmail,
   normalizeSourceUrl,
@@ -68,6 +69,18 @@ describe('LinkedIn post ids', () => {
     expect(isLinkedInPostUrl('https://www.linkedin.com/posts/acme_hiring-team-Aogk')).toBe(false);
     expect(extractLinkedInPostId('https://www.linkedin.com/posts/acme_hiring-team-Aogk?utm_campaign=7526946904958668801')).toBeNull();
     expect(isLinkedInPostUrl('https://example.com/posts/acme_hiring-7526946904958668801-Aogk')).toBe(false);
+  });
+
+  it('recognises only LinkedIn /p/ short share links as post URLs', () => {
+    const short = 'https://lnkd.in/p/dtEKwVfK';
+    expect(isLinkedInShortPostUrl(short)).toBe(true);
+    expect(isLinkedInPostUrl(short)).toBe(true);
+    expect(isLinkedInPostUrl(`${short}?utm_source=telegram`)).toBe(true);
+    expect(isLinkedInPostUrl('https://lnkd.in/dtEKwVfK')).toBe(false);
+    expect(isLinkedInPostUrl('https://lnkd.in/p/../../evilxx')).toBe(false);
+    expect(isLinkedInPostUrl('http://lnkd.in/p/dtEKwVfK')).toBe(false);
+    expect(isLinkedInPostUrl('https://lnkd.in:444/p/dtEKwVfK')).toBe(false);
+    expect(extractLinkedInPostId(short)).toBeNull();
   });
 
   it('extracts ids from post, feed and activity URLs', () => {

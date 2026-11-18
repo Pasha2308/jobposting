@@ -105,6 +105,47 @@ describe('Telegram capture bot', () => {
     expect(store.opportunities).toHaveLength(1);
   });
 
+  it('saves a valid lnkd.in post link once and asks for copied text when retrieval is disabled', async () => {
+    const { store } = await seedStore();
+    const messenger = new RecordingMessenger();
+    const shortUrl = 'https://lnkd.in/p/dtEKwVfK';
+    await handleTelegramUpdate(messageUpdate(21, shortUrl), {
+      store, ai: fakeAI(), env: testEnv(), messenger,
+    });
+
+    expect(store.captures).toHaveLength(1);
+    expect(store.captures[0].source_url).toBe(shortUrl);
+    expect(store.captures[0].status).toBe('awaiting_text');
+    expect(messenger.sent.some((entry) => /send the copied post text/i.test(entry.text))).toBe(true);
+
+    await handleTelegramUpdate(messageUpdate(22, shortUrl), {
+      store, ai: fakeAI(), env: testEnv(), messenger,
+    });
+    expect(store.captures).toHaveLength(1);
+  });
+
+  it('preserves the exact short post URL when post text is submitted with it', async () => {
+    const { store } = await seedStore();
+    const messenger = new RecordingMessenger();
+    const submittedUrl = 'https://lnkd.in/p/dtEKwVfK?utm_source=telegram';
+    await handleTelegramUpdate(messageUpdate(24, `${submittedUrl}\n${SAMPLE_TEXT}`), {
+      store, ai: fakeAI(), env: testEnv(), messenger,
+    });
+    expect(store.captures).toHaveLength(1);
+    expect(store.captures[0].source_url).toBe(submittedUrl);
+    expect(store.opportunities).toHaveLength(1);
+  });
+
+  it('rejects lnkd.in links outside the post-share path without creating captures', async () => {
+    const { store } = await seedStore();
+    const messenger = new RecordingMessenger();
+    await handleTelegramUpdate(messageUpdate(23, 'https://lnkd.in/not-a-post'), {
+      store, ai: fakeAI(), env: testEnv(), messenger,
+    });
+    expect(store.captures).toHaveLength(0);
+    expect(messenger.sent.some((entry) => /Only links to specific LinkedIn posts/i.test(entry.text))).toBe(true);
+  });
+
   it('blocks a callback from a different admin and never publishes', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();

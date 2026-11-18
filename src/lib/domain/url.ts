@@ -128,11 +128,23 @@ export function isLinkedInHost(hostname: string): boolean {
   return host === 'linkedin.com' || host === 'www.linkedin.com' || host === 'm.linkedin.com' || host === 'lnkd.in';
 }
 
+/** LinkedIn share links use /p/<opaque-code>; they must be resolved before retrieval. */
+export function isLinkedInShortPostUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname.toLowerCase() === 'lnkd.in' && !url.port && !url.username && !url.password &&
+      /^\/p\/[A-Za-z0-9_-]{6,32}\/?$/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function isLinkedInPostUrl(value: string | null | undefined): boolean {
   if (!value) return false;
   try {
     const url = new URL(value);
-    return isLinkedInHost(url.hostname) && extractLinkedInPostId(url) !== null;
+    return (isLinkedInHost(url.hostname) && extractLinkedInPostId(url) !== null) || isLinkedInShortPostUrl(value);
   } catch {
     return false;
   }
