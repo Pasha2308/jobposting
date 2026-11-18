@@ -91,11 +91,11 @@ export function extractLinkedInPostId(input: string | URL): string | null {
   const patterns = [
     /\/feed\/update\/urn:li:activity:(\d+)/,
     /\/feed\/update\/urn:li:(?:share|ugcPost):(\d+)/,
-    // LinkedIn slug URLs usually end in the numeric activity id
-    // (e.g. /posts/acme_hiring-1234567890).
-    /\/posts\/(?:[^/]*?[-_])?(\d{10,})(?:[/?#]|$)/,
+    // LinkedIn /posts/ URLs may append a four-character share code after the
+    // numeric activity id (e.g. ...-7526946904958668801-Aogk).
+    /\/posts\/[^/?#]*[-_](\d{10,})(?:-[A-Za-z0-9]{4})?(?:[/?#]|$)/,
+    /\/posts\/(\d{10,})(?:-[A-Za-z0-9]{4})?(?:[/?#]|$)/,
     /activity[:-](\d{10,})/,
-    /\/posts\/([A-Za-z0-9-]{6,})/,
     /\/pulse\/([A-Za-z0-9-]{6,})/,
   ];
   for (const p of patterns) {

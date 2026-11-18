@@ -32,6 +32,8 @@ export type SubmitCaptureInput = {
   telegramUserId?: number | null;
   telegramChatId?: number | null;
   telegramMessageId?: number | null;
+  /** Keep a Telegram-provided source URL verbatim while still deduping canonically. */
+  preserveSourceUrl?: boolean;
 };
 
 export type SubmitCaptureResult = {
@@ -98,7 +100,7 @@ export async function submitCapture(store: Store, input: SubmitCaptureInput): Pr
   }
 
   const capture = await store.createCapture({
-    source_url: normalizedUrl,
+    source_url: input.preserveSourceUrl ? parsed.data.source_url?.trim() ?? null : normalizedUrl,
     normalized_source_key: sourceKey,
     source_post_id: sourcePostId,
     source_type: parsed.data.source_type,

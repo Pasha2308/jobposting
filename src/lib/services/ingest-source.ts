@@ -121,7 +121,8 @@ export async function ingestLinkedInUrl(
   retrieval: RetrievalFn,
   opts: { siteUrl: string },
 ): Promise<IngestResult> {
-  const normalized = normalizeSourceUrl(input.sourceUrl);
+  const originalSourceUrl = input.sourceUrl.trim();
+  const normalized = normalizeSourceUrl(originalSourceUrl);
   if (!normalized || !isLinkedInPostUrl(normalized)) {
     return {
       ok: false,
@@ -180,7 +181,7 @@ export async function ingestLinkedInUrl(
         processing_started_at: new Date().toISOString(),
       })
     : await store.createCapture({
-        source_url: normalized,
+        source_url: originalSourceUrl,
         normalized_source_key: sourceKey,
         source_post_id: postId,
         source_type: 'linkedin_post',
@@ -205,7 +206,7 @@ export async function ingestLinkedInUrl(
 
   let outcome: RetrievalResult;
   try {
-    outcome = await retrieval(capture.source_url ?? normalized);
+    outcome = await retrieval(normalized);
   } catch (error) {
     outcome = {
       ok: false,
@@ -296,7 +297,7 @@ export async function retryRetrieval(
   const attempts = capture.retrieval_attempts + (opts.claimed ? 0 : 1);
   let outcome: RetrievalResult;
   try {
-    outcome = await retrieval(capture.source_url);
+    outcome = await retrieval(normalizeSourceUrl(capture.source_url) ?? capture.source_url);
   } catch (error) {
     outcome = {
       ok: false,

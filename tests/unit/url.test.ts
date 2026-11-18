@@ -3,6 +3,7 @@ import {
   canonicalSourceKey,
   extractLinkedInPostId,
   isSafeEmail,
+  isLinkedInPostUrl,
   isValidHttpUrl,
   normalizeEmail,
   normalizeSourceUrl,
@@ -41,6 +42,34 @@ describe('normalizeSourceUrl', () => {
 });
 
 describe('LinkedIn post ids', () => {
+  const suppliedPostUrls = [
+    {
+      url: 'https://www.linkedin.com/posts/krishi-prasad_were-hiring-at-sure-role-founders-office-share-7526946904958668801-Aogk',
+      id: '7526946904958668801',
+    },
+    {
+      url: 'https://www.linkedin.com/posts/shivani-shenoy-2605a7261_hiring-executiveassistant-ceosoffice-share-7526946885132234752-sF6p',
+      id: '7526946885132234752',
+    },
+  ];
+
+  it.each(suppliedPostUrls)('extracts the actual activity id from the shared-post suffix: $id', ({ url, id }) => {
+    const tracked = `${url}?utm_source=linkedin&utm_medium=member_desktop&rcm=ACoAAA&utm_campaign=share`;
+    const canonical = `https://www.linkedin.com/feed/update/urn:li:activity:${id}`;
+
+    for (const candidate of [url, tracked]) {
+      expect(extractLinkedInPostId(candidate)).toBe(id);
+      expect(isLinkedInPostUrl(candidate)).toBe(true);
+      expect(normalizeSourceUrl(candidate)).toBe(canonical);
+    }
+  });
+
+  it('rejects LinkedIn posts that do not contain a numeric activity id', () => {
+    expect(isLinkedInPostUrl('https://www.linkedin.com/posts/acme_hiring-team-Aogk')).toBe(false);
+    expect(extractLinkedInPostId('https://www.linkedin.com/posts/acme_hiring-team-Aogk?utm_campaign=7526946904958668801')).toBeNull();
+    expect(isLinkedInPostUrl('https://example.com/posts/acme_hiring-7526946904958668801-Aogk')).toBe(false);
+  });
+
   it('extracts ids from post, feed and activity URLs', () => {
     expect(extractLinkedInPostId('https://www.linkedin.com/posts/acme_hiring-1234567890')).toBe('1234567890');
     expect(extractLinkedInPostId('https://www.linkedin.com/feed/update/urn:li:activity:7123456789012345678')).toBe(

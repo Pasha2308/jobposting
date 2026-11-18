@@ -66,7 +66,7 @@ describe('URL-first LinkedIn ingestion', () => {
     if (!outcome.ok) return;
 
     const capture = outcome.capture;
-    expect(capture.source_url).toBe(CANONICAL);
+    expect(capture.source_url).toBe(POST_URL);
     expect(capture.retrieval_status).toBe('retrieved');
     expect(capture.retrieval_method).toBe('jsonld');
     expect(capture.retrieval_http_status).toBe(200);
@@ -81,7 +81,7 @@ describe('URL-first LinkedIn ingestion', () => {
     expect(outcome.result.opportunities).toHaveLength(1);
     const opp = outcome.result.opportunities[0];
     expect(opp.source_capture_id).toBe(capture.id);
-    expect(opp.source_url).toBe(CANONICAL);
+    expect(opp.source_url).toBe(POST_URL);
     expect(opp.canonical_source_key).toBe('linkedin:1234567890');
     expect(opp.opening_key).toBe(1);
 
@@ -107,7 +107,7 @@ describe('URL-first LinkedIn ingestion', () => {
     expect(outcome.capture?.status).toBe('retrieval_failed');
     expect(outcome.capture?.retrieval_status).toBe('failed');
     expect(outcome.capture?.retrieval_error_code).toBe('login_required');
-    expect(outcome.capture?.source_url).toBe(CANONICAL);
+    expect(outcome.capture?.source_url).toBe(POST_URL);
     expect(outcome.capture?.raw_text).toBe('');
     // Access blocks are not retried automatically.
     expect(outcome.capture?.next_retry_at).toBeNull();
@@ -146,7 +146,7 @@ describe('URL-first LinkedIn ingestion', () => {
     expect(outcome.errorCode).toBe('retrieval_not_authorised');
     expect(outcome.capture?.status).toBe('awaiting_text');
     expect(outcome.capture?.retrieval_status).toBe('skipped');
-    expect(outcome.capture?.source_url).toBe(CANONICAL);
+    expect(outcome.capture?.source_url).toBe(POST_URL);
     expect(outcome.capture?.next_retry_at).toBeNull();
   });
 
@@ -333,6 +333,64 @@ describe('retrieval retry queue', () => {
 });
 
 describe('Telegram URL-first flow and manual fallback', () => {
+  const suppliedTelegramUrls = [
+    'https://www.linkedin.com/posts/krishi-prasad_were-hiring-at-sure-role-founders-office-share-7526946904958668801-Aogk',
+    'https://www.linkedin.com/posts/shivani-shenoy-2605a7261_hiring-executiveassistant-ceosoffice-share-7526946885132234752-sF6p',
+  ];
+
+  it.each(suppliedTelegramUrls.flatMap((url) => [url, `${url}?utm_source=linkedin&utm_medium=member_desktop&rcm=ACoAAA&utm_campaign=share`]))(
+    'accepts a shared LinkedIn post and preserves its original URL: %s',
+    async (sourceUrl) => {
+      const { store } = await seedStore();
+      const ai = fakeAI();
+      const messenger = new RecordingMessenger();
+      const retrievalUrl = sourceUrl.split('?')[0].replace(/\/posts\/[^/]+$/, (path) => {
+        const id = path.match(/(\d{10,})-[A-Za-z0-9]{4}$/)?.[1];
+        return `/feed/update/urn:li:activity:${id}`;
+      });
+      const retrieval = async (url: string) => {
+        // The URL is durably captured before retrieval is attempted.
+        expect(store.captures).toHaveLength(1);
+        expect(url).toBe(retrievalUrl);
+        return retrievalFailure('retrieval_not_authorised', 'Automatic retrieval is not authorised.', {
+          method: 'jsonld',
+          retryable: false,
+        });
+      };
+
+      await handleTelegramUpdate(messageUpdate(1, sourceUrl), {
+        store,
+        ai,
+        env: testEnv(),
+        messenger,
+        retrieval,
+      });
+
+      expect(store.captures).toHaveLength(1);
+      expect(store.captures[0].source_url).toBe(sourceUrl);
+      expect(store.captures[0].normalized_source_key).toMatch(/^linkedin:\d{10,}$/);
+      expect(store.captures[0].status).toBe('awaiting_text');
+      expect(ai.calls).toHaveLength(0);
+      expect(messenger.sent.some((entry) => /send the copied post text/i.test(entry.text))).toBe(true);
+    },
+  );
+
+  it('rejects a LinkedIn posts path without a numeric activity id', async () => {
+    const { store } = await seedStore();
+    const messenger = new RecordingMessenger();
+
+    await handleTelegramUpdate(messageUpdate(1, 'https://www.linkedin.com/posts/acme_hiring-team-Aogk'), {
+      store,
+      ai: fakeAI(),
+      env: testEnv(),
+      messenger,
+      retrieval: successRetrieval(),
+    });
+
+    expect(store.captures).toHaveLength(0);
+    expect(messenger.sent.some((entry) => entry.text.includes('Only links to specific LinkedIn posts'))).toBe(true);
+  });
+
   it('acknowledges a URL, retrieves it and sends opening previews', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();
@@ -348,7 +406,7 @@ describe('Telegram URL-first flow and manual fallback', () => {
     expect(messenger.sent[0].text).toContain('Saving it and retrieving');
     expect(messenger.sent.some((m) => m.text.includes('Opportunity preview'))).toBe(true);
     expect(store.opportunities).toHaveLength(1);
-    expect(store.captures[0].source_url).toBe(CANONICAL);
+    expect(store.captures[0].source_url).toBe(POST_URL);
   });
 
   it('asks for copied text after a failed retrieval and then extracts from the same capture', async () => {
@@ -365,7 +423,7 @@ describe('Telegram URL-first flow and manual fallback', () => {
     expect(failureMessage).toBeTruthy();
     expect(failureMessage?.text).toContain('Send the copied post text');
     expect(store.captures[0].status).toBe('retrieval_failed');
-    expect(store.captures[0].source_url).toBe(CANONICAL);
+    expect(store.captures[0].source_url).toBe(POST_URL);
     expect(store.opportunities).toHaveLength(0);
 
     await handleTelegramUpdate(messageUpdate(2, SAMPLE_TEXT), deps);
@@ -375,7 +433,7 @@ describe('Telegram URL-first flow and manual fallback', () => {
     expect(store.captures[0].retrieval_method).toBe('manual_text');
     expect(store.captures[0].status).toBe('needs_review');
     expect(store.opportunities).toHaveLength(1);
-    expect(store.opportunities[0].source_url).toBe(CANONICAL);
+    expect(store.opportunities[0].source_url).toBe(POST_URL);
     expect(messenger.sent.some((m) => m.text.includes('Opportunity preview'))).toBe(true);
   });
 

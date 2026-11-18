@@ -233,7 +233,7 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
         store,
         ai,
         {
-          sourceUrl: normalizedUrl,
+          sourceUrl: urlCandidate,
           actor: `telegram:${userId}`,
           telegramUserId: userId,
           telegramChatId: chatId,
@@ -306,6 +306,7 @@ async function handleMessage(message: TelegramMessage, deps: TelegramDeps): Prom
       telegramUserId: userId,
       telegramChatId: chatId,
       telegramMessageId: message.message_id,
+      preserveSourceUrl: true,
     });
     capture = submitted.capture;
   } catch (error) {
