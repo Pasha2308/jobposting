@@ -4,19 +4,20 @@ import { expect, test, type Page } from '@playwright/test';
  * Authenticated end-to-end workflows A–H.
  *
  * These require a real, seeded Supabase project plus a first admin account and
- * Gemini. They are skipped unless the E2E_* variables are supplied, so the public
- * smoke suite can still run locally and in CI without credentials.
+ * an AI provider (Groq by default, Gemini if configured). They are skipped
+ * unless the E2E_* variables are supplied, so the public smoke suite can still
+ * run locally and in CI without credentials.
  *
  * Required:
  *   E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD
- *   E2E_GEMINI_CONFIGURED=1 (for capture/extraction workflows)
+ *   E2E_AI_CONFIGURED=1 (for capture/extraction workflows)
  *   E2E_TELEGRAM_SECRET (for webhook verification workflow)
  */
 
 const configured = Boolean(
   process.env.E2E_ADMIN_EMAIL && process.env.E2E_ADMIN_PASSWORD && process.env.E2E_SUPABASE_URL,
 );
-const gemini = configured && process.env.E2E_GEMINI_CONFIGURED === '1';
+const aiConfigured = configured && process.env.E2E_AI_CONFIGURED === '1';
 const telegramSecret = process.env.E2E_TELEGRAM_SECRET;
 
 async function signIn(page: Page): Promise<void> {
@@ -53,7 +54,7 @@ test.describe('workflows A–H', () => {
   });
 
   test('A. capture a pasted post into a reviewed draft', async ({ page }) => {
-    test.skip(!gemini, 'Requires a configured Gemini key (E2E_GEMINI_CONFIGURED=1).');
+    test.skip(!aiConfigured, 'Requires a configured AI key (E2E_AI_CONFIGURED=1).');
     await page.goto('/admin/capture');
     await page.locator('#source_url').fill(`https://www.linkedin.com/posts/e2e_hiring-${Date.now()}`);
     await page
@@ -154,7 +155,7 @@ test.describe('workflows A–H', () => {
   });
 
   test('H. duplicate source URLs are blocked without creating a second record', async ({ page }) => {
-    test.skip(!gemini, 'Requires a configured Gemini key (E2E_GEMINI_CONFIGURED=1).');
+    test.skip(!aiConfigured, 'Requires a configured AI key (E2E_AI_CONFIGURED=1).');
     const source = `https://www.linkedin.com/posts/e2e_duplicate-${Date.now()}`;
     const text =
       'E2E Test Company is hiring a Growth Associate. You will own lifecycle campaigns and work with the founder. Remote in India. Apply at https://example.com/e2e-application.';

@@ -20,13 +20,20 @@ export function createServiceClient(env: AppEnv): SupabaseClient | null {
 }
 
 /**
- * Anon-key client used only for password sign-in and token refresh on the
- * server. Sessions are stored in HttpOnly cookies; they are never exposed to
- * the browser as Supabase localStorage sessions.
+ * Auth client used for password sign-in and token refresh on the server.
+ * Sessions are stored in HttpOnly cookies; they are never exposed to the
+ * browser as Supabase localStorage sessions.
+ *
+ * The anon key is preferred. If only the service-role key is configured, it is
+ * used as the API key for GoTrue: the key is already server-only, and the user
+ * session it returns still carries the normal `authenticated` role, so RLS and
+ * the admin allowlist are unchanged. This keeps admin sign-in working in a
+ * deployment where the anon key was not copied over.
  */
 export function createAuthClient(env: AppEnv): SupabaseClient | null {
-  if (!env.supabaseUrl || !env.supabaseAnonKey) return null;
-  return createClient(env.supabaseUrl, env.supabaseAnonKey, {
+  const key = env.supabaseAnonKey || env.supabaseServiceRoleKey;
+  if (!env.supabaseUrl || !key) return null;
+  return createClient(env.supabaseUrl, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,

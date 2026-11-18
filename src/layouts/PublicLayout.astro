@@ -25,7 +25,7 @@ const {
 } = Astro.props;
 
 const env = Astro.locals.env;
-const siteUrl = env?.siteUrl ?? Astro.site?.toString() ?? 'https://hustlercommunity-opportunities.pages.dev';
+const siteUrl = env?.siteUrl ?? Astro.site?.toString() ?? 'https://hustlercommunity-opportunities.vercel.app';
 const canonical = new URL(Astro.url.pathname, siteUrl).toString();
 const fullTitle = title.includes('Hustler Community') ? title : `${title} · Hustler Community Opportunities`;
 const image = new URL(ogImage, siteUrl).toString();

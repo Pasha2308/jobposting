@@ -47,20 +47,30 @@ end $$;
 
 -- ----------------------------------------------------------------------------
 -- Add a trigger to set opening_key when a new opportunity is inserted.
+--
+-- The column default is dropped so this trigger can own the value: with
+-- `default 1` the trigger condition `opening_key is null` was never true, and
+-- two openings of the same source inserted without an explicit key collided on
+-- the composite unique index. The app still supplies keys explicitly; this only
+-- makes direct SQL inserts safe.
 -- ----------------------------------------------------------------------------
+alter table opportunities alter column opening_key drop default;
+
 create or replace function set_opening_key()
 returns trigger
 language plpgsql
 as $$
 begin
-  if new.canonical_source_key is not null and new.opening_key is null then
-    select coalesce(
-      (select max(opening_key) from opportunities o2
-       where o2.canonical_source_key = new.canonical_source_key
-         and o2.status not in ('rejected','archived')),
-      0
-    ) + 1
-    into new.opening_key;
+  if new.opening_key is null then
+    if new.canonical_source_key is null then
+      new.opening_key := 1;
+    else
+      select coalesce(max(opening_key), 0) + 1
+      into new.opening_key
+      from opportunities o2
+      where o2.canonical_source_key = new.canonical_source_key
+        and o2.status not in ('rejected','archived');
+    end if;
   end if;
   new.updated_at = now();
   return new;
@@ -113,9 +123,13 @@ create trigger opportunities_updated_at before update on opportunities
 -- ----------------------------------------------------------------------------
 -- Grant permissions.
 -- ----------------------------------------------------------------------------
-grant execute on function set_opening_key() to authenticated, service_role;
-grant execute on function set_publication_number_on_publish() to authenticated, service_role;
-grant usage, select on sequence opportunity_publication_number_seq to authenticated, anon, service_role;
+-- Trigger functions run with the privileges of the table owner, so nobody needs
+-- direct EXECUTE on them. Keep them off the public API surface.
+revoke all on function set_opening_key() from public, anon, authenticated;
+revoke all on function set_publication_number_on_publish() from public, anon, authenticated;
+grant execute on function set_opening_key() to service_role;
+grant execute on function set_publication_number_on_publish() to service_role;
+grant usage, select on sequence opportunity_publication_number_seq to service_role;
 
 comment on column opportunities.opening_key is 'Sequential number of this opening within its source capture (1, 2, 3, ...). Used to distinguish multiple openings from the same source.';
 comment on column opportunities.publication_number is 'Global sequential number allocated at publication time for the fixed LinkedIn comment template. Never reused; republish allocates no new number.';

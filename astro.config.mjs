@@ -8,7 +8,7 @@ const SITE_URL = process.env.PUBLIC_SITE_URL || 'https://hustlercommunity-opport
 export default defineConfig({
   site: SITE_URL,
   output: 'server',
-  adapter: vercel(),
+  adapter: vercel({ maxDuration: 60 }),
   integrations: [react()],
   vite: {
     build: {

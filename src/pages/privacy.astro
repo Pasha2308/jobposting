@@ -69,7 +69,7 @@ const updated = '13 November 2026';
       <ul>
         <li><strong>Supabase</strong> — database and authentication hosting.</li>
         <li><strong>Cloudflare Pages</strong> — application hosting, plus optional Cloudflare Turnstile for bot protection on public forms.</li>
-        <li><strong>Google Gemini</strong> — when configured, pasted source text is sent server-side to extract structured fields. The integration is used for extraction only; the model does not publish anything.</li>
+        <li><strong>Groq</strong> (default) or <strong>Google Gemini</strong> when configured - pasted or retrieved source text is sent server-side to extract structured fields. The integration is used for extraction only; the model does not publish anything.</li>
         <li><strong>Telegram</strong> — when the owner bot is configured, the owner can submit a source and receive a review preview. Telegram processes those messages under its own terms.</li>
       </ul>
       <p>
@@ -80,8 +80,9 @@ const updated = '13 November 2026';
       <h2>Retention</h2>
       <p>
         Published listing fields are retained while the listing is useful, including after a role closes. Raw source
-        captures are private and are retained for a configurable period (default 180 days) so that a listing can be
-        audited or corrected. Reports are retained while needed to resolve the issue. Anonymous analytics events are
+        captures are private and are retained for a configurable period (default 90 days) so that a listing can be
+        audited or corrected; after that, raw text and comments are purged while the reviewed listing and its source
+        reference remain. Reports are retained while needed to resolve the issue. Anonymous analytics events are
         retained for aggregate reporting and are not tied to individuals.
       </p>
 

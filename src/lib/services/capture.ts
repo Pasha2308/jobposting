@@ -254,7 +254,9 @@ export async function processCapture(
       }
     }
 
-    const duplicateCandidates = await store.recentDuplicateCandidates(300);
+    // Exclude this capture's own rows: on a retry after a partial multi-opening
+    // write, its already-created openings must not be reported as duplicates.
+    const duplicateCandidates = await store.recentDuplicateCandidates(300, capture.id);
     const allPotentialDuplicates: DuplicateCandidate[] = [];
 
     // Per-opening duplicate check, company resolution and opportunity creation.
@@ -387,19 +389,54 @@ export async function processCapture(
           created_by: opts.actor,
         };
 
-        let opportunity: Opportunity;
-        try {
-          opportunity = await store.createOpportunity(draft);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '';
-          if (/slug|duplicate|already/i.test(message)) {
-            opportunity = await store.createOpportunity({
-              ...draft,
-              slug: `${draft.slug}-${Math.random().toString(36).slice(2, 6)}`,
-            });
-          } else {
-            throw error;
+        // Resumable write. A previous attempt may have already created this
+        // exact opening before failing on a later one. Reuse that row rather
+        // than colliding with the (canonical_source_key, opening_key) index,
+        // which would otherwise either drop the opening or create a duplicate.
+        let opportunity: Opportunity | null = capture.normalized_source_key
+          ? await store.findOpportunityByOpening(capture.normalized_source_key, openingKey)
+          : null;
+        const reused = opportunity != null;
+
+        if (!opportunity) {
+          try {
+            opportunity = await store.createOpportunity(draft);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : '';
+            const uniqueConflict = /duplicate|already exists|unique|23505|conflict/i.test(message);
+            // A concurrent worker may have inserted the same opening between
+            // the lookup and the insert. Re-read before doing anything else.
+            if (uniqueConflict && capture.normalized_source_key) {
+              opportunity = await store.findOpportunityByOpening(capture.normalized_source_key, openingKey);
+            }
+            if (!opportunity) {
+              if (/slug/i.test(message)) {
+                opportunity = await store.createOpportunity({
+                  ...draft,
+                  slug: `${draft.slug}-${Math.random().toString(36).slice(2, 6)}`,
+                });
+              } else {
+                throw error;
+              }
+            }
           }
+        }
+
+        if (!opportunity) {
+          // Defensive: the branches above either assign a row or throw, so this
+          // is unreachable. It exists so no opening can ever be dropped silently.
+          throw new ServiceError('create_failed', `Opening ${openingKey} could not be saved.`, 500);
+        }
+
+        if (reused && opportunity.status === 'pending_review') {
+          // Refresh an opening written by an earlier failed attempt so a changed
+          // extraction order can never leave stale content in this slot. Rows a
+          // reviewer already approved or published are never overwritten.
+          opportunity = await store.updateOpportunity(opportunity.id, {
+            ...draft,
+            discovered_at: opportunity.discovered_at,
+            status: opportunity.status,
+          });
         }
 
         const withRelations: OpportunityWithRelations = {

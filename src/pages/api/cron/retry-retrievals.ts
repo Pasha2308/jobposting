@@ -32,7 +32,9 @@ async function run(request: Request, env: AppEnv) {
   const recovered = await store.recoverStaleRetrieving(120).catch(() => 0);
   const recoveredExtractions = await store.recoverStaleExtracting(30 * 60).catch(() => 0);
   const claimed = await store.claimDueRetrievals(5).catch(() => []);
-  const purged = await store.purgeExpiredSourceText(90).catch(() => 0);
+  const settings = await store.getSettings().catch(() => null);
+  const retentionDays = settings?.source_retention_days ?? 90;
+  const purged = await store.purgeExpiredSourceText(retentionDays).catch(() => 0);
 
   const results: Array<{ captureId: string; ok: boolean; errorCode?: string }> = [];
   for (const capture of claimed) {
@@ -61,6 +63,7 @@ async function run(request: Request, env: AppEnv) {
     recovered,
     recoveredExtractions,
     claimed: claimed.length,
+    retentionDays,
     purged,
     results,
   });

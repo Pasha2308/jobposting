@@ -53,6 +53,47 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  migrations:
+    name: Database migrations (PostgreSQL 15)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create test database
+        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -c "create database hc_test;"
+
+      - name: Supabase compatibility stub
+        run: psql -h localhost -U postgres -d hc_test -v ON_ERROR_STOP=1 -f supabase/tests/00_supabase_stub.sql
+
+      - name: Apply migrations in order
+        run: |
+          set -euo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "Applying $f"
+            psql -h localhost -U postgres -d hc_test -v ON_ERROR_STOP=1 --single-transaction -f "$f"
+          done
+
+      - name: Migration smoke tests
+        run: psql -h localhost -U postgres -d hc_test -v ON_ERROR_STOP=1 -f supabase/tests/01_smoke.sql
+
   e2e:
     name: Public E2E (desktop + mobile)
     needs: verify

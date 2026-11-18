@@ -125,6 +125,7 @@ const setupChecks = [
           <div class="field">
             <label for="ai_provider">AI extraction provider</label>
             <select class="select" id="ai_provider" name="ai_provider">
+              <option value="groq" selected={s.ai_provider === 'groq'}>Groq</option>
               <option value="gemini" selected={s.ai_provider === 'gemini'}>Gemini</option>
               <option value="none" selected={s.ai_provider === 'none'}>Disabled (manual only)</option>
             </select>
@@ -275,10 +276,10 @@ const setupChecks = [
     const data = new FormData(form);
     const payload = {
       verification_reminder_days: Number(data.get('verification_reminder_days') ?? 14),
-      source_retention_days: Number(data.get('source_retention_days') ?? 180),
+      source_retention_days: Number(data.get('source_retention_days') ?? 90),
       public_submissions_enabled: data.get('public_submissions_enabled') === 'on',
       reports_enabled: data.get('reports_enabled') === 'on',
-      ai_provider: String(data.get('ai_provider') ?? 'gemini'),
+      ai_provider: String(data.get('ai_provider') ?? 'groq'),
       default_currency: String(data.get('default_currency') ?? 'INR'),
     };
 

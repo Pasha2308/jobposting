@@ -527,15 +527,18 @@ export class SupabaseStore implements Store {
     };
   }
 
-  async recentDuplicateCandidates(limit = 200): Promise<DuplicateCandidate[]> {
+  async recentDuplicateCandidates(limit = 200, excludeCaptureId?: string | null): Promise<DuplicateCandidate[]> {
     const cutoff = new Date(Date.now() - 180 * 86_400_000).toISOString();
-    const { data, error } = await this.client
+    let query = this.client
       .from('opportunities')
       .select('id,title,source_url,canonical_source_key,original_posted_at,discovered_at,company:companies(name)')
       .gte('discovered_at', cutoff)
-      .not('status', 'in', '(archived,rejected)')
-      .order('discovered_at', { ascending: false })
-      .limit(limit);
+      .not('status', 'in', '(archived,rejected)');
+    if (excludeCaptureId) {
+      // Keep rows that have no capture (manual entries) as duplicates.
+      query = query.or(`source_capture_id.is.null,source_capture_id.neq.${excludeCaptureId}`);
+    }
+    const { data, error } = await query.order('discovered_at', { ascending: false }).limit(limit);
     if (error) fail(error, 'Could not check duplicates');
     return (data ?? []).map((row) => {
       const r = row as Record<string, unknown>;
@@ -560,6 +563,19 @@ export class SupabaseStore implements Store {
       .limit(1)
       .maybeSingle();
     if (error) fail(error, 'Could not look up source');
+    return data ? mapOpportunity(data as Record<string, unknown>) : null;
+  }
+
+  async findOpportunityByOpening(sourceKey: string, openingKey: number): Promise<Opportunity | null> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('*')
+      .eq('canonical_source_key', sourceKey)
+      .eq('opening_key', openingKey)
+      .not('status', 'in', '(rejected,archived)')
+      .limit(1)
+      .maybeSingle();
+    if (error) fail(error, 'Could not look up opening');
     return data ? mapOpportunity(data as Record<string, unknown>) : null;
   }
 
@@ -707,10 +723,16 @@ export class SupabaseStore implements Store {
 
   async purgeExpiredSourceText(olderThanDays: number): Promise<number> {
     const cutoff = new Date(Date.now() - Math.max(1, olderThanDays) * 86_400_000).toISOString();
+    // Only captures that already produced an opportunity and reached a terminal
+    // review state are purged. An old draft, a failed retrieval waiting for
+    // manual text, or anything still under review keeps its source so no work in
+    // progress is ever destroyed by the retention worker.
     const { data, error } = await this.client
       .from('source_captures')
       .update({ raw_text: '', extraction: null, source_comments: null, source_metadata: null })
       .lt('created_at', cutoff)
+      .not('opportunity_id', 'is', null)
+      .in('status', ['approved', 'rejected', 'published'])
       .select('id');
     if (error) fail(error, 'Could not purge expired source text');
     return (data ?? []).length;

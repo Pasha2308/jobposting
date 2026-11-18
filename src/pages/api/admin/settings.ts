@@ -27,10 +27,10 @@ export const POST: APIRoute = async (context) => {
 
     const parsed = settingsSchema.safeParse({
       verification_reminder_days: Number(body.verification_reminder_days ?? 14),
-      source_retention_days: Number(body.source_retention_days ?? 180),
+      source_retention_days: Number(body.source_retention_days ?? 90),
       public_submissions_enabled: body.public_submissions_enabled !== false && body.public_submissions_enabled !== 'false',
       reports_enabled: body.reports_enabled !== false && body.reports_enabled !== 'false',
-      ai_provider: String(body.ai_provider ?? 'gemini'),
+      ai_provider: String(body.ai_provider ?? 'groq'),
       default_currency: String(body.default_currency ?? 'INR').toUpperCase(),
     });
     if (!parsed.success) {

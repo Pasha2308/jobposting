@@ -170,12 +170,20 @@ describe('capture pipeline', () => {
     expect(await store.purgeExpiredSourceText(180)).toBe(0);
     expect((await store.getCapture(submitted.capture.id))?.raw_text).toBe(SAMPLE_TEXT);
 
+    // An old capture that is still awaiting review keeps its source text.
     store.captures[0].created_at = new Date(Date.now() - 200 * 86_400_000).toISOString();
+    expect(await store.purgeExpiredSourceText(180)).toBe(0);
+    expect((await store.getCapture(submitted.capture.id))?.raw_text).toBe(SAMPLE_TEXT);
+
+    // Only a terminal capture that produced an opportunity is purged.
+    store.captures[0].status = 'approved';
+    store.captures[0].opportunity_id = '99999999-9999-4999-8999-999999999999';
     expect(await store.purgeExpiredSourceText(180)).toBe(1);
 
     const purged = await store.getCapture(submitted.capture.id);
     expect(purged?.raw_text).toBe('');
     expect(purged?.extraction).toBeNull();
     expect(purged?.source_url).toBe('https://www.linkedin.com/feed/update/urn:li:activity:1234567890');
+    expect(purged?.opportunity_id).toBe('99999999-9999-4999-8999-999999999999');
   });
 });

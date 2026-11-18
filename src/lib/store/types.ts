@@ -92,8 +92,19 @@ export interface Store {
   updateOpportunity(id: string, patch: Partial<Opportunity>): Promise<Opportunity>;
   deleteOpportunity(id: string): Promise<void>;
   homepage(limit?: number): Promise<HomeData>;
-  recentDuplicateCandidates(limit?: number): Promise<DuplicateCandidate[]>;
+  /**
+   * Recent opportunities used for duplicate detection. When `excludeCaptureId`
+   * is supplied, rows created by that capture are omitted so a retried
+   * extraction never reports the capture's own openings as duplicates.
+   */
+  recentDuplicateCandidates(limit?: number, excludeCaptureId?: string | null): Promise<DuplicateCandidate[]>;
   findOpportunityBySourceKey(key: string): Promise<Opportunity | null>;
+  /**
+   * Finds the opportunity a capture already created for a given opening slot.
+   * Retrying a partially persisted multi-opening extraction reuses these rows
+   * instead of colliding with the (source key, opening key) unique index.
+   */
+  findOpportunityByOpening(sourceKey: string, openingKey: number): Promise<Opportunity | null>;
   listPublicSlugs(): Promise<{ slug: string; updated_at: string }[]>;
   listLocations(): Promise<LocationCount[]>;
   listCountries(): Promise<{ country: string; count: number }[]>;

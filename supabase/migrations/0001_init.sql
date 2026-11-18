@@ -239,11 +239,28 @@ create index opportunities_deadline_idx on opportunities (deadline);
 create index opportunities_status_published_idx on opportunities (status, published_at desc) where status = 'published';
 create index opportunities_featured_idx on opportunities (is_featured) where is_featured = true;
 
+-- array_to_string() is STABLE because it may call non-immutable element output
+-- functions. For text[] specifically the element output (textout) is IMMUTABLE,
+-- so this narrow wrapper is genuinely immutable. It exists only so the GIN
+-- search index can include skills without PostgreSQL raising 42P17.
+create or replace function hc_array_to_text(arr text[])
+returns text
+language sql
+immutable
+parallel safe
+set search_path = pg_catalog
+as $$
+  select array_to_string(arr, ' ');
+$$;
+
+revoke all on function hc_array_to_text(text[]) from public, anon, authenticated;
+grant execute on function hc_array_to_text(text[]) to service_role;
+
 create index opportunities_search_idx on opportunities using gin (
   (
     setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
     setweight(to_tsvector('simple', coalesce(summary, '')), 'B') ||
-    setweight(to_tsvector('simple', coalesce(array_to_string(skills, ' '), '')), 'C') ||
+    setweight(to_tsvector('simple', coalesce(hc_array_to_text(skills), '')), 'C') ||
     setweight(to_tsvector('simple', coalesce(location_text, '') || ' ' || coalesce(city, '') || ' ' || coalesce(country, '')), 'B')
   )
 );
@@ -492,7 +509,9 @@ stable
 security definer
 set search_path = public
 as $$
-with base as (
+-- `search_doc` is computed once in `shaped`; a WHERE clause cannot reference a
+-- column alias from the same SELECT level, so filtering happens one level down.
+with shaped as (
   select
     o.*,
     c.name as joined_company_name,
@@ -506,38 +525,42 @@ with base as (
     (
       setweight(to_tsvector('simple', coalesce(o.title, '')), 'A') ||
       setweight(to_tsvector('simple', coalesce(o.summary, '')), 'B') ||
-      setweight(to_tsvector('simple', coalesce(array_to_string(o.skills, ' '), '')), 'C') ||
+      setweight(to_tsvector('simple', coalesce(hc_array_to_text(o.skills), '')), 'C') ||
       setweight(to_tsvector('simple', coalesce(o.location_text,'') || ' ' || coalesce(o.city,'') || ' ' || coalesce(o.country,'')), 'B')
     ) as search_doc
   from opportunities o
   left join companies c on c.id = o.company_id
   left join categories cat on cat.id = o.category_id
-  where o.status = 'published'
-    and o.closed_at is null
-    and o.published_at is not null
-    and (o.deadline is null or o.deadline >= current_date)
-    and (p_category is null or cat.slug = p_category)
-    and (p_country is null or lower(o.country) = lower(p_country) or upper(o.country_code) = upper(p_country))
-    and (p_city is null or lower(o.city) = lower(p_city))
-    and (p_work_modes is null or array_length(p_work_modes, 1) is null or o.work_mode::text = any(p_work_modes))
-    and (p_employment_types is null or array_length(p_employment_types, 1) is null or o.employment_type::text = any(p_employment_types))
-    and (p_currency is null or o.currency = p_currency)
-    and (not coalesce(p_salary_disclosed, false) or o.salary_min is not null or o.salary_max is not null)
+),
+base as (
+  select *
+  from shaped
+  where status = 'published'
+    and closed_at is null
+    and published_at is not null
+    and (deadline is null or deadline >= current_date)
+    and (p_category is null or joined_category_slug = p_category)
+    and (p_country is null or lower(country) = lower(p_country) or upper(country_code) = upper(p_country))
+    and (p_city is null or lower(city) = lower(p_city))
+    and (p_work_modes is null or array_length(p_work_modes, 1) is null or work_mode::text = any(p_work_modes))
+    and (p_employment_types is null or array_length(p_employment_types, 1) is null or employment_type::text = any(p_employment_types))
+    and (p_currency is null or currency = p_currency)
+    and (not coalesce(p_salary_disclosed, false) or salary_min is not null or salary_max is not null)
     and (
       p_experience is null or p_experience = ''
-      or (p_experience = 'entry' and coalesce(o.experience_min_years, 0) <= 2)
-      or (p_experience = 'mid' and coalesce(o.experience_min_years, 0) between 2 and 5)
-      or (p_experience = 'senior' and coalesce(o.experience_min_years, 0) >= 5)
+      or (p_experience = 'entry' and coalesce(experience_min_years, 0) <= 2)
+      or (p_experience = 'mid' and coalesce(experience_min_years, 0) between 2 and 5)
+      or (p_experience = 'senior' and coalesce(experience_min_years, 0) >= 5)
     )
     and (
       p_q is null or trim(p_q) = ''
       or search_doc @@ websearch_to_tsquery('simple', p_q)
-      or o.title ilike '%' || p_q || '%'
-      or c.name ilike '%' || p_q || '%'
-      or cat.name ilike '%' || p_q || '%'
-      or o.city ilike '%' || p_q || '%'
-      or o.country ilike '%' || p_q || '%'
-      or exists (select 1 from unnest(o.skills) s where s ilike '%' || p_q || '%')
+      or title ilike '%' || p_q || '%'
+      or joined_company_name ilike '%' || p_q || '%'
+      or joined_category_name ilike '%' || p_q || '%'
+      or city ilike '%' || p_q || '%'
+      or country ilike '%' || p_q || '%'
+      or exists (select 1 from unnest(skills) s where s ilike '%' || p_q || '%')
     )
 ),
 counted as (select count(*)::integer as total from base),
@@ -699,7 +722,7 @@ shape as (
       'id', category_id, 'name', category_name, 'slug', category_slug
     ) end
   ) as item,
-  discovered_at, is_featured, work_mode, employment_type
+  discovered_at, published_at, is_featured, work_mode, employment_type
   from live
 ),
 latest as (
@@ -844,7 +867,7 @@ trend as (
   select coalesce(jsonb_agg(jsonb_build_object('date', d::date, 'count', coalesce(c.n, 0)) order by d), '[]'::jsonb) data
   from generate_series(current_date - 29, current_date, '1 day') d
   left join (
-    select published_at::date day, count(*)::integer n
+    select published_at::date as day, count(*)::integer n
     from opportunities where published_at is not null
     group by 1
   ) c on c.day = d::date
@@ -852,8 +875,8 @@ trend as (
 daily as (
   select coalesce(jsonb_agg(jsonb_build_object('date', d::date, 'views', coalesce(v.n, 0), 'applyClicks', coalesce(a.n, 0)) order by d), '[]'::jsonb) data
   from generate_series(current_date - 29, current_date, '1 day') d
-  left join (select created_at::date day, count(*)::integer n from window_events where event_type = 'view' group by 1) v on v.day = d::date
-  left join (select created_at::date day, count(*)::integer n from window_events where event_type = 'apply_click' group by 1) a on a.day = d::date
+  left join (select created_at::date as day, count(*)::integer n from window_events where event_type = 'view' group by 1) v on v.day = d::date
+  left join (select created_at::date as day, count(*)::integer n from window_events where event_type = 'apply_click' group by 1) a on a.day = d::date
 ),
 top_searches as (
   select coalesce(jsonb_agg(jsonb_build_object('query', query, 'count', n) order by n desc), '[]'::jsonb) data

@@ -339,9 +339,10 @@ export class MemoryStore implements Store {
     };
   }
 
-  async recentDuplicateCandidates(limit = 200): Promise<DuplicateCandidate[]> {
+  async recentDuplicateCandidates(limit = 200, excludeCaptureId?: string | null): Promise<DuplicateCandidate[]> {
     return this.opportunities
       .filter((o) => !['archived', 'rejected'].includes(o.status))
+      .filter((o) => !excludeCaptureId || o.source_capture_id !== excludeCaptureId)
       .slice(0, limit)
       .map((o) => ({
         id: o.id,
@@ -356,6 +357,14 @@ export class MemoryStore implements Store {
 
   async findOpportunityBySourceKey(key: string): Promise<Opportunity | null> {
     return this.opportunities.find((o) => o.canonical_source_key === key) ?? null;
+  }
+
+  async findOpportunityByOpening(sourceKey: string, openingKey: number): Promise<Opportunity | null> {
+    return (
+      this.opportunities.find(
+        (o) => o.canonical_source_key === sourceKey && o.opening_key === openingKey,
+      ) ?? null
+    );
   }
 
   async listPublicSlugs(): Promise<{ slug: string; updated_at: string }[]> {
@@ -485,6 +494,8 @@ export class MemoryStore implements Store {
     for (const capture of this.captures) {
       if (
         Date.parse(capture.created_at) < cutoff &&
+        capture.opportunity_id &&
+        ['approved', 'rejected', 'published'].includes(capture.status) &&
         (capture.raw_text || capture.extraction || capture.source_comments || capture.source_metadata)
       ) {
         capture.raw_text = '';

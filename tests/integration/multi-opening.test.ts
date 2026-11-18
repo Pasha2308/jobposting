@@ -321,11 +321,6 @@ describe('Multiple openings from one LinkedIn post (Scenario 1-12)', () => {
       { store, ai, env: testEnv(), messenger },
     );
 
-    if (store.opportunities.length === 0) {
-      console.log('TEST 2 MESSENGER SENT:', messenger.sent);
-      console.log('TEST 2 STORE CAPTURES:', store.captures);
-    }
-
     const updated2 = await store.getOpportunityById(opening2.id);
     expect(updated2?.status).toBe('published');
     expect(updated2?.publication_number).toBe(1);
@@ -374,5 +369,97 @@ describe('Multiple openings from one LinkedIn post (Scenario 1-12)', () => {
     expect(retried.opportunities).toHaveLength(5);
     expect(retried.capture.status).toBe('needs_review');
     expect(retried.capture.attempt_count).toBe(2);
+  });
+
+  it('resumes a partially persisted extraction without losing or duplicating openings', async () => {
+    const { store } = await seedStore();
+    const submitted = await submitCapture(store, {
+      sourceUrl: MULTI_POST_URL,
+      rawText: MULTI_POST_TEXT,
+      sourceType: 'linkedin_post',
+      actor: 'admin:test@example.com',
+    });
+
+    // Fail exactly one opening, as if a write failed mid-loop after the other
+    // openings of the same capture had already been stored.
+    const originalCreate = store.createOpportunity.bind(store);
+    store.createOpportunity = async (draft) => {
+      if (draft.title === 'Business Operations Intern') {
+        throw new Error('Database write failed.');
+      }
+      return originalCreate(draft);
+    };
+
+    await expect(
+      processCapture(store, multiOpeningAI(), submitted.capture.id, {
+        actor: 'admin:test@example.com',
+        siteUrl: SITE_URL,
+      }),
+    ).rejects.toThrow(/Database write failed/);
+
+    // Let the concurrently started openings settle before inspecting the store.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const failed = await store.getCapture(submitted.capture.id);
+    expect(failed?.status).toBe('extraction_failed');
+    const partial = store.opportunities.filter((o) => o.source_capture_id === submitted.capture.id);
+    expect(partial.length).toBeGreaterThan(0);
+    expect(partial.length).toBeLessThan(5);
+
+    store.createOpportunity = originalCreate;
+
+    const retried = await retryCapture(store, multiOpeningAI(), submitted.capture.id, {
+      actor: 'admin:test@example.com',
+      siteUrl: SITE_URL,
+    });
+
+    const rows = store.opportunities.filter((o) => o.source_capture_id === submitted.capture.id);
+    expect(rows).toHaveLength(5);
+    expect(rows.map((o) => o.opening_key).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(rows.map((o) => o.title)).size).toBe(5);
+    expect(new Set(rows.map((o) => o.slug)).size).toBe(5);
+    expect(retried.opportunities).toHaveLength(5);
+    expect(retried.capture.status).toBe('needs_review');
+    // The capture's own openings must not be reported as duplicates of itself.
+    expect(retried.potentialDuplicates).toHaveLength(0);
+    expect(retried.warnings.some((w) => /duplicate/i.test(w))).toBe(false);
+  });
+
+  it('excludes a capture\'s own openings from duplicate candidates', async () => {
+    const { store } = await seedStore();
+    const submitted = await submitCapture(store, {
+      sourceUrl: MULTI_POST_URL,
+      rawText: MULTI_POST_TEXT,
+      sourceType: 'linkedin_post',
+      actor: 'admin:test@example.com',
+    });
+
+    const result = await processCapture(store, multiOpeningAI(), submitted.capture.id, {
+      actor: 'admin:test@example.com',
+      siteUrl: SITE_URL,
+    });
+    expect(result.opportunities).toHaveLength(5);
+
+    expect(await store.recentDuplicateCandidates(300)).toHaveLength(5);
+    expect(await store.recentDuplicateCandidates(300, submitted.capture.id)).toHaveLength(0);
+  });
+
+  it('finds an opportunity by source key and opening key', async () => {
+    const { store } = await seedStore();
+    const submitted = await submitCapture(store, {
+      sourceUrl: MULTI_POST_URL,
+      rawText: MULTI_POST_TEXT,
+      sourceType: 'linkedin_post',
+      actor: 'admin:test@example.com',
+    });
+
+    await processCapture(store, multiOpeningAI(), submitted.capture.id, {
+      actor: 'admin:test@example.com',
+      siteUrl: SITE_URL,
+    });
+
+    const third = await store.findOpportunityByOpening('linkedin:7788990011', 3);
+    expect(third?.title).toBe('Business Operations Intern');
+    expect(await store.findOpportunityByOpening('linkedin:7788990011', 99)).toBeNull();
   });
 });

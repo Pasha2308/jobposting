@@ -280,7 +280,7 @@ Copy `.env.example` to `.env`. On Vercel, set the same keys under Project Settin
 
 | Variable | Required | Exposure | Purpose |
 | --- | --- | --- | --- |
-| `PUBLIC_SITE_URL` | Yes | Public | Canonical origin for canonical tags, shares, sitemap, Telegram links. Example: `https://your-project.pages.dev` |
+| `PUBLIC_SITE_URL` | Yes | Public | Canonical origin for canonical tags, shares, sitemap, Telegram links. Example: `https://your-project.vercel.app` |
 | `SUPABASE_URL` | Yes | Server | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Yes | Server | Used only server-side for password sign-in and token refresh |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | **Server secret** | Server-side data access. Never exposed to the browser |
@@ -361,9 +361,16 @@ even if authentication succeeds.
 ### Migrations and seeds
 
 The SQL files are plain Postgres and are applied through the Supabase SQL editor
-or the Supabase CLI (`supabase db push`). `0002_seed.sql` is idempotent and adds
-the initial categories and default settings. Keep migrations append-only once a
-database is live.
+or the Supabase CLI (`supabase db push`). Apply `0001` → `0006` in filename
+order, **one file per execution**: `0004` adds enum values that `0005`/`0006`
+use, and PostgreSQL cannot use a new enum value in the transaction that added
+it. `0002_seed.sql` is idempotent and adds the initial categories and default
+settings. Keep migrations append-only once a database is live.
+
+`0001` defines `hc_array_to_text(text[])`, an `IMMUTABLE` wrapper used by the
+GIN search index. `array_to_string()` and array casts are `STABLE`, so using
+them directly in an index expression fails with PostgreSQL `42P17`. The wrapper
+exists only for that reason.
 
 ---
 
@@ -382,6 +389,12 @@ How extraction behaves:
   prompt-injection resistant by design.
 - One post can contain many roles. The model returns an `openings` array and each
   distinct role becomes its own opportunity with its own application route.
+- Multi-opening writes are resumable. Each opening is keyed by
+  `(canonical_source_key, opening_key)`. If a write fails partway through a
+  multi-opening post, retrying extraction reuses the openings already saved,
+  refreshes any that are still `pending_review`, and creates only the missing
+  ones. A retry never loses an opening and never creates a duplicate; a capture's
+  own rows are also excluded from its duplicate check.
 - For longer posts (four or more extracted openings) an optional second, cheap
   call lists every role mentioned. A mismatch is surfaced as a review warning;
   possible roles are never silently discarded. If the coverage call fails or the
@@ -460,13 +473,16 @@ The retrieval layer is modular (`src/lib/linkedin/`):
   (`login_required`) and missing content are not retried and request manual text.
 - Raw source text, comments and retrieval metadata are retained for 90 days, then
   purged by the recovery job while the opportunity records and source references
-  remain.
+  remain. Only captures that already produced an opportunity and reached a
+  terminal review state (`approved`, `rejected`, `published`) are purged, so an
+  old draft or a capture waiting for copied text never loses its source.
 
 ### Recovery cron
 
 `GET /api/cron/retry-retrievals` requires `Authorization: Bearer $CRON_SECRET`.
 It recovers captures stuck in `retrieving` or `extracting`, claims due retries
-atomically with `FOR UPDATE SKIP LOCKED`, and runs the 90-day retention purge.
+atomically with `FOR UPDATE SKIP LOCKED`, and runs the retention purge using the
+configured `source_retention_days` (default 90).
 `vercel.json` schedules it once daily (`0 3 * * *`), which is the supported
 frequency on the Vercel Hobby plan. On Pro, change the schedule to run more often.
 The endpoint returns `401` when `CRON_SECRET` is unset, so it can never be
@@ -541,11 +557,12 @@ Covers URL normalisation and slugging, duplicate detection and canonical source
 keys, AI output validation, publication and application-route rules, category and
 company validation, date normalisation, lifecycle transitions, comment safety and
 versioning, the capture pipeline, multi-opening extraction (1, 3 and 5+ roles),
-coverage mismatches, retrieval guards/redirects/timeouts/size caps, JSON-LD parsing
-(reposts, comments, malformed blocks), URL-first ingestion and manual fallback,
-retry claims and stale recovery, completeness scoring, admin session/allowlist
-rules, failed-AI retry, publishing, Telegram update dedupe/allowlist/callbacks,
-reports, public submissions and click tracking.
+coverage mismatches, resuming a partially written multi-opening post without
+losing or duplicating openings, retrieval guards/redirects/timeouts/size caps,
+JSON-LD parsing (reposts, comments, malformed blocks), URL-first ingestion and
+manual fallback, retry claims and stale recovery, completeness scoring, admin
+session/allowlist rules, failed-AI retry, publishing, Telegram update
+dedupe/allowlist/callbacks, reports, public submissions and click tracking.
 
 The suite uses `MemoryStore`, a complete in-memory implementation of the `Store`
 contract, so workflows run without credentials. Production uses `SupabaseStore`
@@ -557,6 +574,26 @@ with the same interface.
 npm run check
 npm run lint
 ```
+
+### Database migrations (plain PostgreSQL)
+
+The migration chain is executed against a throwaway PostgreSQL 15 database. The
+stub recreates only `auth.users` and the Supabase API roles; **never apply the
+stub to the real Supabase project**. The smoke suite asserts multi-opening
+inserts, duplicate blocking, automatic opening keys, publication numbering,
+lifecycle guards, the publication gate, the search RPC, RLS, atomic retry claims
+and the `IMMUTABLE` helper.
+
+```bash
+createdb hc_test
+psql -d hc_test -v ON_ERROR_STOP=1 -f supabase/tests/00_supabase_stub.sql
+for f in supabase/migrations/*.sql; do
+  psql -d hc_test -v ON_ERROR_STOP=1 --single-transaction -f "$f"
+done
+psql -d hc_test -v ON_ERROR_STOP=1 -f supabase/tests/01_smoke.sql
+```
+
+CI runs exactly this in the `Database migrations (PostgreSQL 15)` job.
 
 ### End-to-end (Playwright)
 
@@ -579,7 +616,7 @@ otherwise. Set:
 | `E2E_SUPABASE_URL` | Confirms a live project is present |
 | `E2E_ADMIN_EMAIL` | First admin email |
 | `E2E_ADMIN_PASSWORD` | First admin password |
-| `E2E_GEMINI_CONFIGURED=1` | Enables capture/extraction workflows |
+| `E2E_AI_CONFIGURED=1` | Enables capture/extraction workflows |
 | `E2E_TELEGRAM_SECRET` | Enables Telegram webhook verification workflow |
 
 Workflows: A capture → review, B publish through the validated gate, C published
@@ -660,12 +697,14 @@ states instead of fabricated content.
 
 ### Data retention
 
-`source_retention_days` (default 180) controls how long raw capture text is kept.
-Link-ingestion captures follow the operational rule of 90 days: the daily recovery
-job purges raw text, stored extraction payloads, source comments and retrieval
-metadata older than 90 days, leaving the reviewed opportunity rows and source
-references intact. Use **Admin → Settings → Source retention → Purge expired source
-text** for a manual purge. Both paths are logged to `activity_logs`.
+`source_retention_days` (default 90) controls how long raw capture text is kept.
+The daily recovery job purges raw text, stored extraction payloads, source
+comments and retrieval metadata once a capture is older than that window **and**
+it has already produced an opportunity in a terminal review state (`approved`,
+`rejected`, `published`). Opportunity rows and source references stay intact, and
+a draft or a capture awaiting copied text is never purged. Use **Admin →
+Settings → Source retention → Purge expired source text** for a manual purge.
+Both paths are logged to `activity_logs`.
 
 ---
 

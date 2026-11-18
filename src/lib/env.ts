@@ -130,7 +130,7 @@ export function isLinkedInRetrievalEnabled(env: AppEnv): boolean {
 export function configurationReport(env: AppEnv) {
   return {
     database: isDatabaseConfigured(env),
-    auth: Boolean(env.supabaseUrl && env.supabaseAnonKey),
+    auth: Boolean(env.supabaseUrl && (env.supabaseAnonKey || env.supabaseServiceRoleKey)),
     ai: isAiConfigured(env),
     telegram: isTelegramConfigured(env),
     turnstile: Boolean(env.turnstileSecretKey && env.turnstileSiteKey),

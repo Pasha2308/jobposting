@@ -696,7 +696,7 @@ export const settingsSchema = z.object({
   source_retention_days: z.number().int().min(7).max(3650),
   public_submissions_enabled: z.boolean(),
   reports_enabled: z.boolean(),
-  ai_provider: z.enum(['gemini', 'none']),
+  ai_provider: z.enum(['gemini', 'groq', 'none']),
   default_currency: z.string().trim().min(2).max(3),
 });
 
