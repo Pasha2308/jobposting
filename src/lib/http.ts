@@ -55,15 +55,12 @@ export function formBool(form: FormData, key: string): boolean {
 }
 
 /**
- * Origins a state-changing request may legitimately come from.
+ * Origins that may legitimately submit a state-changing request.
  *
- * Astro's built-in `security.checkOrigin` compares the browser `Origin` header
- * with the URL Astro reconstructed. Behind a TLS-terminating proxy (Vercel,
- * Cloudflare, a load balancer) that reconstructed URL can be `http://…` while
- * the browser correctly sends `https://…`, which rejects valid admin logins
- * with "Cross-site POST form submissions are forbidden". This helper accepts
- * the configured public origin and the deployment's own forwarded host, and
- * nothing else — so it stays a real same-origin check while tolerating proxies.
+ * Astro's built-in checkOrigin remains enabled for form submissions. This
+ * helper additionally protects JSON mutations, which Astro's form check does
+ * not cover. In production, trust only the configured public origin and an
+ * HTTPS request URL; never infer an allowed origin from Host or forwarded data.
  */
 export function allowedRequestOrigins(request: Request, env: AppEnv): Set<string> {
   const allowed = new Set<string>();
@@ -76,25 +73,14 @@ export function allowedRequestOrigins(request: Request, env: AppEnv): Set<string
     }
   };
 
-  add(request.url);
   add(env.siteUrl);
-
-  const forwardedHost = request.headers.get('x-forwarded-host');
-  const host = (forwardedHost ?? request.headers.get('host') ?? '').split(',')[0]?.trim();
-  if (host) {
-    const forwardedProto = (request.headers.get('x-forwarded-proto') ?? '').split(',')[0]?.trim().toLowerCase();
-    let proto = forwardedProto === 'http' || forwardedProto === 'https' ? forwardedProto : '';
-    if (!proto) {
-      try {
-        proto = new URL(request.url).protocol.replace(':', '');
-      } catch {
-        proto = '';
-      }
+  try {
+    const requestUrl = new URL(request.url);
+    if (!env.isProduction || requestUrl.protocol === 'https:') {
+      allowed.add(requestUrl.origin);
     }
-    if (proto) add(`${proto}://${host}`);
-    // Proxies terminate TLS and may pass an internal http hop; the public origin
-    // for this same host is still https in production.
-    if (env.isProduction) add(`https://${host}`);
+  } catch {
+    // An invalid request URL cannot add an allowed origin.
   }
 
   return allowed;
@@ -117,10 +103,9 @@ export function isSecureRequest(request: Request): boolean {
 }
 
 /**
- * Same-origin enforcement for state-changing requests. This complements
- * SameSite=Lax cookies and protects against cross-site form posts. It runs in
- * every mutating route because the built-in Astro check is disabled: it cannot
- * account for a TLS-terminating proxy and blocked production logins.
+ * Same-origin enforcement for state-changing JSON requests. Astro's built-in
+ * check handles browser form submissions before the route; this check covers
+ * JSON mutations and remains defense in depth for every mutation endpoint.
  */
 export function assertSameOrigin(request: Request, env: AppEnv): void {
   const origin = request.headers.get('origin');
