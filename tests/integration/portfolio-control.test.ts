@@ -12,7 +12,7 @@ function responseJson(value: unknown): Response {
 }
 
 describe('portfolio control bot', () => {
-  it('verifies /start and runs one complete initial full scan manually', async () => {
+  it('verifies /start and runs one complete initial recent-jobs scan manually', async () => {
     const store = new MemoryStore();
     const messenger = new RecordingMessenger();
     const env = testEnv({
@@ -60,10 +60,10 @@ describe('portfolio control bot', () => {
 
     const run = await store.latestPortfolioSearch();
     expect(run?.status).toBe('completed');
-    expect(run?.full_backfill).toBe(true);
+    expect(run?.full_backfill).toBe(false);
     expect(run?.report).toMatchObject({ scanned: 3, created: 3 });
     expect((await store.listAdmin({ status: 'pending_review', page: 1, pageSize: 10 })).total).toBe(3);
-    expect(messenger.sent.some((message) => message.text.includes('initial full backfill'))).toBe(true);
+    expect(messenger.sent.some((message) => message.text.includes('last successful source checkpoints'))).toBe(true);
     expect(messenger.sent.at(-1)?.text).toContain('Latest search: completed');
     expect(messenger.sent.at(-1)?.text).toContain('Pending admin review: 3');
   });

@@ -85,8 +85,10 @@ export async function handlePortfolioBotUpdate(update: TelegramUpdate, deps: Bot
 
 async function runFetch(userId: number, chatId: number, deps: BotDeps): Promise<void> {
   const { env, store, messenger } = deps;
-  const previous = await store.latestPortfolioSearch();
-  const fullBackfill = !previous || (previous.full_backfill && previous.status !== 'completed');
+  // The two-day first-scan window is intentional: public feeds can contain
+  // hundreds of old postings and a historical import can outlive one webhook
+  // invocation. Later runs use source checkpoints and still read every new item.
+  const fullBackfill = false;
   const runId = await store.startPortfolioSearch(userId, fullBackfill);
   if (!runId) {
     await messenger.sendMessage(chatId, 'A job search is already running. Use /status to check its progress.');

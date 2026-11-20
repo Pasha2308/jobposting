@@ -712,9 +712,10 @@ The separate portfolio control bot supports `/start`, `/fetch`, `/status`, and
 `/done`, plus FETCH and DONE buttons. Discovery runs only after an admin sends
 `/fetch`; the daily recovery cron no longer searches jobs and remains available
 for retrieval and Telegram delivery retries. The first control-bot fetch reads
-all current jobs exposed by enabled sources; later fetches use each source's last
-successful checkpoint. Jobs go to `pending_review`; they are never published
-automatically. The HC Job ID system and public page routes remain unchanged.
+all source jobs published in the previous 48 hours; later fetches use each
+source's last successful checkpoint and do not cap the result count. Jobs go to
+`pending_review`; they are never published automatically. The HC Job ID system
+and public page routes remain unchanged.
 
 On publication, the app saves a factual LinkedIn draft from the reviewed listing
 fields and queues it once. The separate bot sends up to 30 drafts per batch,
