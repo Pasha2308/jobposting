@@ -5,7 +5,7 @@ import { loadAdminCategories, loadAdminOpportunities } from '../../../lib/admin-
 import { OPPORTUNITY_STATUSES } from '../../../lib/domain/types';
 import type { OpportunityStatus } from '../../../lib/domain/types';
 import { STATUS_LABELS, formatDate, relativeTime } from '../../../lib/domain/format';
-import { checkEnglishJobContent } from '../../../lib/domain/language';
+import { validateForPublication } from '../../../lib/domain/validation';
 
 const env = Astro.locals.env;
 const url = Astro.url;
@@ -27,9 +27,10 @@ const [result, categories] = await Promise.all([
 ]);
 
 const totalPages = Math.max(1, result.data.totalPages);
-const englishById = new Map(result.data.items.map((item) => {
-  const language = checkEnglishJobContent(item, (item as typeof item & { source_capture_text?: string | null }).source_capture_text);
-  return [item.id, { ok: language.ok, label: language.ok ? 'English' : 'Language review', reason: language.ok ? 'English content verified' : language.reason }] as const;
+const readinessById = new Map(result.data.items.map((item) => {
+  const sourceText = (item as typeof item & { source_capture_text?: string | null }).source_capture_text;
+  const result = validateForPublication(item, item.company?.name, item.category?.name, sourceText);
+  return [item.id, { ready: result.ok, blockers: result.blocking }] as const;
 }));
 const queryFor = (patch: Record<string, string | number | undefined>): string => {
   const params = new URLSearchParams();
@@ -146,7 +147,7 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
               <th>Category</th>
               <th>Location</th>
               <th>Timestamps</th>
-              <th>Language / verification</th>
+              <th>Review readiness</th>
               <th></th>
             </tr>
           </thead>
@@ -159,8 +160,7 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
                     value={o.id}
                     data-bulk-item
                     aria-label={`Select ${o.title}`}
-                    disabled={!englishById.get(o.id)?.ok}
-                    title={englishById.get(o.id)?.reason}
+                    title="Select this opportunity for a bulk action"
                   />
                 </td>
                 <td>
@@ -176,11 +176,15 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
                   <div>Closed {o.closed_at ? formatDate(o.closed_at) : '—'}</div>
                 </td>
                 <td>
-                  <span class:list={['badge', englishById.get(o.id)?.ok ? 'badge--published' : 'badge--rejected']}>
-                    {englishById.get(o.id)?.label}
+                  <span class:list={['badge', readinessById.get(o.id)?.ready ? 'badge--published' : 'badge--rejected']}>
+                    {readinessById.get(o.id)?.ready ? 'Ready to publish' : 'Needs information'}
                   </span>
                   <span class:list={['badge', `badge--${o.verification_status}`]}>{o.verification_status.replace(/_/g, ' ')}</span>
-                  <div class="cell-sub">{o.last_verified_at ? relativeTime(o.last_verified_at) : 'Never checked'}</div>
+                  <div class="cell-sub" title={readinessById.get(o.id)?.blockers.join(' ')}>
+                    {readinessById.get(o.id)?.ready
+                      ? o.last_verified_at ? `Verified ${relativeTime(o.last_verified_at)}` : 'Source needs review'
+                      : (readinessById.get(o.id)?.blockers[0] ?? 'Check job details')}
+                  </div>
                 </td>
                 <td>
                   <div class="actions">
@@ -284,7 +288,7 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
         | {
             ok?: boolean;
             succeeded?: string[];
-            failed?: { id: string; reason: string }[];
+            failed?: { id: string; reason: string; blocking?: string[] }[];
             delivery?: { sent: number; failed: number; batchNumber: number | null } | null;
             deliveryError?: string | null;
             error?: string;
@@ -301,7 +305,10 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
       const succeeded = result.succeeded ?? [];
       const failures = result.failed ?? [];
       const itemName = (id: string) => items.find((item) => item.value === id)?.getAttribute('aria-label')?.replace(/^Select /, '') ?? id;
-      const failedDetails = failures.slice(0, 3).map((item) => `${itemName(item.id)}: ${item.reason}`).join(' | ');
+      const failedDetails = failures.slice(0, 3).map((item) => {
+        const blockers = item.blocking?.length ? ` ${item.blocking.join(' ')}` : '';
+        return `${itemName(item.id)}: ${item.reason}${blockers}`;
+      }).join(' | ');
       const delivery = result.delivery
         ? ` Telegram: ${result.delivery.sent} sent${result.delivery.failed ? `, ${result.delivery.failed} failed` : ''}${result.delivery.batchNumber ? ` (batch ${result.delivery.batchNumber})` : ''}.`
         : '';

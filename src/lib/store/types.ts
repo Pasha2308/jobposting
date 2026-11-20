@@ -231,6 +231,8 @@ export interface Store {
   listActivity(limit?: number): Promise<ActivityLog[]>;
   getSettings(): Promise<AppSettings>;
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  expireStaleOpportunities(): Promise<number>;
+  activateNextCompanySourceBatch(): Promise<number>;
 
   /* future ATS integrations */
   listCompanySources(companyId?: string): Promise<CompanySource[]>;

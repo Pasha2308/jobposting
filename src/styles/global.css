@@ -2258,6 +2258,26 @@ h3 {
   color: var(--brand-bright);
 }
 
+.admin-nav-more {
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+}
+
+.admin-nav-more summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.55rem;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-nav-more summary::-webkit-details-marker { display: none; }
+.admin-nav-more summary::after { content: '+'; float: right; }
+.admin-nav-more[open] summary::after { content: '−'; }
+
 .admin-sidebar__foot {
   margin-top: auto;
   padding-top: var(--s-4);

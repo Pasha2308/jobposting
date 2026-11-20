@@ -27,31 +27,26 @@ const openReports = stats.available ? stats.data.open_reports : 0;
 
 const groups: NavGroup[] = [
   {
-    label: 'Workspace',
+    label: 'Daily work',
     items: [
       { key: 'overview', href: '/admin', label: 'Overview', icon: 'home', exact: true },
-      { key: 'capture', href: '/admin/capture', label: 'Capture', icon: 'zap' },
-      { key: 'opportunities', href: '/admin/opportunities', label: 'Opportunities', icon: 'briefcase' },
-      { key: 'pending', href: '/admin/pending', label: 'Pending review', icon: 'inbox', badge: pending },
-      { key: 'comments', href: '/admin/comments', label: 'Comments', icon: 'message' },
-    ],
-  },
-  {
-    label: 'Moderation',
-    items: [
-      { key: 'reports', href: '/admin/reports', label: 'Reports', icon: 'flag', badge: openReports },
-      { key: 'companies', href: '/admin/companies', label: 'Companies', icon: 'building' },
-      { key: 'categories', href: '/admin/categories', label: 'Categories', icon: 'folder' },
-    ],
-  },
-  {
-    label: 'Insights',
-    items: [
-      { key: 'analytics', href: '/admin/analytics', label: 'Analytics', icon: 'chart' },
-      { key: 'settings', href: '/admin/settings', label: 'Settings', icon: 'settings' },
+      { key: 'pending', href: '/admin/pending', label: 'Review queue', icon: 'inbox', badge: pending },
+      { key: 'capture', href: '/admin/capture', label: 'Submit a job', icon: 'zap' },
+      { key: 'opportunities', href: '/admin/opportunities', label: 'All opportunities', icon: 'briefcase' },
     ],
   },
 ];
+
+const tools: NavItem[] = [
+  { key: 'captures', href: '/admin/capture', label: 'Capture history', icon: 'zap' },
+  { key: 'comments', href: '/admin/comments', label: 'Comment drafts', icon: 'message' },
+  { key: 'reports', href: '/admin/reports', label: 'Candidate reports', icon: 'flag', badge: openReports },
+  { key: 'companies', href: '/admin/companies', label: 'Companies and sources', icon: 'building' },
+  { key: 'categories', href: '/admin/categories', label: 'Categories', icon: 'folder' },
+  { key: 'analytics', href: '/admin/analytics', label: 'Analytics', icon: 'chart' },
+  { key: 'settings', href: '/admin/settings', label: 'Settings', icon: 'settings' },
+];
+const showTools = tools.some((item) => item.key === active);
 
 function isActive(item: NavItem): boolean {
   if (item.exact) return active === item.key;
@@ -104,6 +99,19 @@ const mobileItems = groups[0].items.filter((item) => ['overview', 'capture', 'op
             ))}
           </nav>
         ))}
+
+        <details class="admin-nav-more" open={showTools}>
+          <summary>Manage and reports</summary>
+          <nav class="admin-nav" aria-label="Management and reports">
+            {tools.map((item) => (
+              <a href={item.href} aria-current={isActive(item) ? 'page' : undefined}>
+                <Icon name={item.icon} size={16} />
+                <span>{item.label}</span>
+                {item.badge ? <span class="admin-nav__badge">{item.badge > 99 ? '99+' : item.badge}</span> : null}
+              </a>
+            ))}
+          </nav>
+        </details>
 
         <div class="admin-sidebar__foot">
           <div style="margin-bottom:0.5rem">

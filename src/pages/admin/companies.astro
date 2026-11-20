@@ -3,11 +3,15 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import Icon from '../../components/Icon.astro';
 import { loadCompanies } from '../../lib/admin-data';
 import { relativeTime } from '../../lib/domain/format';
+import { requireStore } from '../../lib/services/context';
 
 const env = Astro.locals.env;
 const url = Astro.url;
 const q = url.searchParams.get('q') ?? '';
 const companies = await loadCompanies(env, q);
+const companySources = await requireStore(env).listCompanySources();
+const activeSourceCount = companySources.filter((source) => source.is_active && source.sync_status !== 'disabled').length;
+const activatedBatch = Math.max(1, ...companySources.filter((source) => source.is_active).map((source) => source.activation_batch ?? 1));
 const verified = companies.data.filter((company) => company.verified).length;
 ---
 
@@ -85,6 +89,34 @@ const verified = companies.data.filter((company) => company.verified).length;
           <strong>Verified means checked.</strong> Only mark a company verified after confirming its website or careers page
           from a source you trust. Missing data is stored as null, never invented.
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:1.5rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="chart" size={14} /> Job discovery sources</span>
+      <span class="badge badge--approved">{activeSourceCount} active · batch {activatedBatch} of 10</span>
+    </div>
+    <div class="panel__body">
+      <p class="tiny muted" style="margin:0 0 1rem">The first 10 company job feeds are active. The system unlocks one more group of 10 every 7 days. FETCH scans active feeds; inactive feeds stay untouched until their turn.</p>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Company feed</th><th>Provider</th><th>Activation</th><th>Last checked</th><th>Result</th></tr></thead>
+          <tbody>
+            {companySources.sort((a, b) => (a.activation_batch ?? 0) - (b.activation_batch ?? 0) || a.board_identifier.localeCompare(b.board_identifier)).map((source) => (
+              <tr>
+                <td>
+                  <a href={source.source_url ?? '#'} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">{source.board_identifier}</a>
+                </td>
+                <td class="tiny">{source.provider}</td>
+                <td><span class:list={['badge', source.is_active ? 'badge--approved' : 'badge--draft']}>{source.is_active ? `Active · group ${source.activation_batch ?? 'existing'}` : `Waiting · group ${source.activation_batch ?? '—'}`}</span></td>
+                <td class="tiny muted">{source.last_checked_at ? relativeTime(source.last_checked_at) : 'Not checked yet'}</td>
+                <td class="tiny">{source.sync_status === 'error' ? <span class="text-danger" title={source.error_message ?? undefined}>Needs attention</span> : source.sync_status === 'ok' ? 'Working' : source.sync_status === 'disabled' ? 'Paused' : 'Ready'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   </div>

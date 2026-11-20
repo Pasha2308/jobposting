@@ -29,6 +29,10 @@ async function run(request: Request, env: AppEnv) {
   const store = requireStore(env);
   const ai = createAIProvider(env);
   const retrieval = createRetrievalService(env);
+  const activatedSources = await store.activateNextCompanySourceBatch();
+  if (activatedSources) console.info('[cron/retry-retrievals] activated verified company source batch', { count: activatedSources });
+  const expired = await store.expireStaleOpportunities();
+  if (expired) console.info('[cron/retry-retrievals] expired public opportunities', { count: expired });
 
   // Queue errors must fail this invocation; pretending an empty queue could
   // silently strand submitted captures until somebody inspects the database.
@@ -105,6 +109,8 @@ async function run(request: Request, env: AppEnv) {
 
   return jsonResponse({
     ok: true,
+    expired,
+    activatedSources,
     recovered,
     recoveredExtractions,
     claimed: claimed.length,

@@ -79,10 +79,12 @@ export function checkTransition(current: OpportunityStatus, action: LifecycleAct
 export function isPubliclyVisible(o: {
   status: OpportunityStatus;
   published_at: string | null;
+  expires_at?: string | null;
   deadline?: string | null;
   closed_at?: string | null;
 }): boolean {
   if (o.status !== 'published' || o.closed_at) return false;
+  if (o.expires_at && o.expires_at <= new Date().toISOString().slice(0, 10)) return false;
   if (!o.published_at) return false;
   if (o.published_at && Date.parse(o.published_at) > Date.now()) return false;
   if (o.deadline && /^\d{4}-\d{2}-\d{2}$/.test(o.deadline)) {

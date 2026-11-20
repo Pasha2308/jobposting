@@ -126,6 +126,22 @@ export async function transitionOpportunity(
   const opportunity = await store.getOpportunityById(opportunityId);
   if (!opportunity) throw new ServiceError('not_found', 'Opportunity not found.', 404);
 
+  if (action === 'submit_for_review' || action === 'approve') {
+    const sourceCapture = opportunity.source_capture_id ? await store.getCapture(opportunity.source_capture_id) : null;
+    const readiness = validateForPublication(
+      opportunity,
+      opportunity.company?.name ?? null,
+      opportunity.category?.name ?? null,
+      sourceCapture?.raw_text,
+    );
+    if (!readiness.ok) {
+      throw new ServiceError('not_ready', 'This job needs more verified information before review.', 422, {
+        blocking: readiness.blocking,
+        warnings: readiness.warnings,
+      });
+    }
+  }
+
   const transition = checkTransition(opportunity.status, action);
   if (!transition.ok) throw new ServiceError('invalid_transition', transition.reason, 409);
 
@@ -155,15 +171,22 @@ export async function bulkTransition(
   action: LifecycleAction,
   actor: string,
   siteUrl: string,
-): Promise<{ succeeded: string[]; failed: { id: string; reason: string }[] }> {
+): Promise<{ succeeded: string[]; failed: { id: string; reason: string; blocking?: string[] }[] }> {
   const succeeded: string[] = [];
-  const failed: { id: string; reason: string }[] = [];
+  const failed: { id: string; reason: string; blocking?: string[] }[] = [];
   for (const id of ids.slice(0, 100)) {
     try {
       await transitionOpportunity(store, id, action, actor, siteUrl);
       succeeded.push(id);
     } catch (error) {
-      failed.push({ id, reason: error instanceof Error ? error.message : 'Unknown error' });
+      const blocking = error instanceof ServiceError && Array.isArray(error.details.blocking)
+        ? error.details.blocking.filter((item): item is string => typeof item === 'string')
+        : undefined;
+      failed.push({
+        id,
+        reason: error instanceof Error ? error.message : 'Unknown error',
+        ...(blocking?.length ? { blocking } : {}),
+      });
     }
   }
   return { succeeded, failed };

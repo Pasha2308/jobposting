@@ -1,6 +1,6 @@
 import type { AIProvider, ExtractionRequest } from '../ai/provider';
 import { AIError } from '../ai/provider';
-import { validateExtraction, type ExtractionOutput, captureInputSchema } from '../domain/validation';
+import { validateExtraction, validateForPublication, type ExtractionOutput, captureInputSchema } from '../domain/validation';
 import { buildOpportunitySlug, canonicalSourceKey, extractLinkedInPostId, normalizeEmail, normalizeSourceUrl, safeOutboundUrl, slugify } from '../domain/url';
 import { checkDuplicates, type DuplicateCandidate } from '../domain/duplicates';
 import { computeCompleteness } from '../domain/completeness';
@@ -390,6 +390,13 @@ export async function processCapture(
           admin_notes: `AI extraction confidence: ${Math.round((opening.confidence || extraction.confidence) * 100)}%. Completeness: ${Math.round(completeness.score * 100)}%. Source: ${capture.source_url ?? 'pasted text'}. Opening ${openingKey}/${extraction.openings.length}.`,
           created_by: opts.actor,
         };
+
+        const readiness = validateForPublication(draft, companyName, category?.name ?? null, capture.raw_text);
+        draft.status = readiness.ok ? 'pending_review' : 'draft';
+        if (!readiness.ok) {
+          draft.quality_flags = [...new Set([...draft.quality_flags, 'needs_information'])];
+          draft.admin_notes = `${draft.admin_notes ?? ''} Needs information before review: ${readiness.blocking.join(' ')}`.trim();
+        }
 
         // Resumable write. A previous attempt may have already created this
         // exact opening before failing on a later one. Reuse that row rather

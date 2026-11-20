@@ -1,6 +1,7 @@
 import type { AppEnv } from '../env';
 import type { CompanySource, OpportunityDraft, OpportunityWithRelations } from '../domain/types';
 import { normalizeSourceUrl, safeOutboundUrl, slugify } from '../domain/url';
+import { validateForPublication } from '../domain/validation';
 import type { Store } from '../store/types';
 
 const TWO_DAYS = 48 * 60 * 60 * 1000;
@@ -79,6 +80,38 @@ function cleanDescription(value: string | null | undefined): string | null {
     .replace(/\n\s+/g, '\n')
     .trim()
     .slice(0, 1200) || null;
+}
+
+function sectionBullets(description: string | null, section: 'responsibilities' | 'requirements'): string[] {
+  if (!description) return [];
+  const responsibilities = /responsibilities|what you(?:'|’)ll do|what you will do|your role|the role/i;
+  const requirements = /requirements|qualifications|what you(?:'|’)ll bring|what you will bring|you have|what we(?:'|’)re looking for|what we are looking for/i;
+  const heading = section === 'responsibilities' ? responsibilities : requirements;
+  const anyHeading = /(?:^|\n)\s*(?:responsibilities|what you(?:'|’)ll do|what you will do|your role|the role|requirements|qualifications|what you(?:'|’)ll bring|what you will bring|you have|what we(?:'|’)re looking for|what we are looking for)\s*:?[ \t]*(?:\n|$)/i;
+  const lines = description.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const start = lines.findIndex((line) => heading.test(line.replace(/[:：]$/, '')));
+  if (start < 0) return [];
+  const result: string[] = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (anyHeading.test(`\n${line}\n`) || /^(?:about us|about the company|benefits|perks|compensation|location|how to apply)\s*:?$/i.test(line)) break;
+    const item = line.replace(/^(?:[-*•▪‣]|\d+[.)])\s*/, '').trim();
+    if (item.length >= 12) result.push(item.slice(0, 400));
+    if (result.length >= 10) break;
+  }
+  return result;
+}
+
+function portfolioCategorySlug(title: string): string {
+  const value = title.toLowerCase();
+  if (/founder.?s office/.test(value)) return 'founders-office';
+  if (/chief of staff/.test(value)) return 'chief-of-staff';
+  if (/founder associate|associate to (the )?founder/.test(value)) return 'founder-associate';
+  if (/\bintern(ship)?\b|early career|graduate program/.test(value)) return 'startup-internships';
+  if (/\b(growth|demand generation|lifecycle marketing)\b/.test(value)) return 'growth';
+  if (/\b(biz ?ops|business operations|operations manager|operations lead)\b/.test(value)) return 'business-operations';
+  if (/\b(strategy|strategic)\b/.test(value)) return 'strategy';
+  return 'other-startup-roles';
 }
 
 function employmentType(values: string[] | undefined): OpportunityDraft['employment_type'] {
@@ -168,6 +201,10 @@ async function createFromJob(
   if (currentStatus && ['closed', 'expired', 'inactive', 'archived', 'removed'].includes(currentStatus)) return null;
   const expiry = job.expires_at ?? job.closed_at;
   if (expiry && Date.parse(expiry) <= Date.now()) return null;
+  if (job.created_at && Number.isFinite(Date.parse(job.created_at)) && Date.now() - Date.parse(job.created_at) > 90 * 24 * 60 * 60 * 1000) {
+    if (stats) stats.qualitySkipped += 1;
+    return null;
+  }
 
   const existing = await store.findOpportunityBySourceKey(`portfolio:${await fingerprint(normalizeSourceUrl(applicationUrl) ?? applicationUrl)}`);
   if (existing) {
@@ -207,14 +244,17 @@ async function createFromJob(
     ? new Date(job.created_at).toISOString().slice(0, 10)
     : null;
   const description = cleanDescription(descriptionOverride ?? job.description);
+  const category = await store.getCategoryBySlug(portfolioCategorySlug(title));
+  const responsibilities = sectionBullets(description, 'responsibilities');
+  const requirements = sectionBullets(description, 'requirements');
   const draft: OpportunityDraft = {
     slug: `${slugify(title)}-${slugify(companyName ?? source.id)}-${slugify(externalId)}`.slice(0, 140).replace(/-+$/g, '') || `portfolio-${slugify(externalId)}`,
     title,
     company_id: company?.id ?? null,
-    category_id: null,
+    category_id: category?.id ?? null,
     summary: description,
-    responsibilities: [],
-    requirements: [],
+    responsibilities,
+    requirements,
     skills: job.skills?.filter(Boolean).slice(0, 25) ?? [],
     preferred_skills: [],
     education_requirements: [],
@@ -238,7 +278,7 @@ async function createFromJob(
     recruitment_email: null,
     careers_url: null,
     application_instructions: null,
-    source_url: safeOutboundUrl(job.source_url) ?? source.boardUrl,
+    source_url: safeOutboundUrl(job.source_url) ?? applicationUrl,
     source_type: 'company_website',
     source_capture_id: null,
     canonical_source_key: key,
@@ -248,10 +288,10 @@ async function createFromJob(
     original_posted_at: posted,
     original_date_precision: posted ? 'exact' : 'unknown',
     original_date_text: null,
-    status: 'pending_review',
+    status: 'draft',
     verification_status: 'needs_verification',
     is_featured: false,
-    quality_flags: ['portfolio_discovered', ...(description ? [] : ['source_description_missing'])],
+    quality_flags: ['portfolio_discovered'],
     completeness_score: null,
     discovered_at: new Date().toISOString(),
     published_at: null,
@@ -262,6 +302,14 @@ async function createFromJob(
     linkedin_post_draft: null,
     is_portfolio_discovered: true,
   };
+
+  const readiness = validateForPublication(draft, companyName, category?.name ?? null);
+  draft.status = readiness.ok ? 'pending_review' : 'draft';
+  if (!readiness.ok) {
+    draft.quality_flags = [...draft.quality_flags, 'needs_information'];
+    draft.admin_notes = `${draft.admin_notes} Blocked: ${readiness.blocking.join(' ')}`;
+    if (stats) stats.qualitySkipped += 1;
+  }
 
   let created;
   try {
@@ -307,9 +355,9 @@ async function fetchCompanySource(
   if (companySource.provider === 'greenhouse') {
     const response = await fetcher(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(companySource.board_identifier)}/jobs?content=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
     if (!response.ok) throw new Error(`Greenhouse jobs API returned HTTP ${response.status}.`);
-    const payload = await response.json() as { jobs?: Array<{ id?: number; title?: string; absolute_url?: string; content?: string; updated_at?: string; location?: { name?: string } }> };
+    const payload = await response.json() as { jobs?: Array<{ id?: number; title?: string; absolute_url?: string; content?: string; updated_at?: string; first_published?: string; location?: { name?: string } }> };
     if (!Array.isArray(payload.jobs)) throw new Error('Greenhouse returned an invalid job list.');
-    jobs = payload.jobs.filter((job) => fullBackfill || !job.updated_at || Date.parse(job.updated_at) >= fromMs).map((job) => ({ id: job.id, title: job.title, url: job.absolute_url, source_url: job.absolute_url, description: job.content, created_at: job.updated_at, locations: job.location?.name ? [job.location.name] : [], company: { name: company.name, website: company.website, careers_url: company.careers_url } }));
+    jobs = payload.jobs.filter((job) => fullBackfill || !job.updated_at || Date.parse(job.updated_at) >= fromMs).map((job) => ({ id: job.id, title: job.title, url: job.absolute_url, source_url: job.absolute_url, description: job.content, created_at: job.first_published ?? job.updated_at, locations: job.location?.name ? [job.location.name] : [], company: { name: company.name, website: company.website, careers_url: company.careers_url } }));
   } else if (companySource.provider === 'lever') {
     const response = await fetcher(`https://api.lever.co/v0/postings/${encodeURIComponent(companySource.board_identifier)}?mode=json`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
     if (!response.ok) throw new Error(`Lever public postings API returned HTTP ${response.status}.`);
@@ -496,7 +544,7 @@ export async function discoverPortfolioJobs(
   // Company career sources are explicitly configured official ATS boards.
   // No company site is inferred or scraped from a guessed URL.
   try {
-    const companySources = (await store.listCompanySources()).filter((source) => source.sync_status !== 'disabled');
+    const companySources = (await store.listCompanySources()).filter((source) => source.is_active !== false && source.sync_status !== 'disabled');
     for (const companySource of companySources) {
       const sourceId = `company-source:${companySource.id}`;
       const previous = await store.getPortfolioDiscoveryState(sourceId);

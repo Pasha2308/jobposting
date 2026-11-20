@@ -53,6 +53,11 @@ describe('isPubliclyVisible', () => {
     expect(isPubliclyVisible({ ...base, deadline: '2020-01-01' })).toBe(false);
   });
 
+  it('hides a listing once its original 90-day expiry date arrives', () => {
+    expect(isPubliclyVisible({ ...base, expires_at: '2020-01-01' })).toBe(false);
+    expect(isPubliclyVisible({ ...base, expires_at: '2999-01-01' })).toBe(true);
+  });
+
   it('hides a listing published in the future', () => {
     expect(isPubliclyVisible({ ...base, published_at: '2999-01-01T00:00:00.000Z' })).toBe(false);
   });

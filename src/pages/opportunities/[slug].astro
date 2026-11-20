@@ -36,6 +36,7 @@ const closed = o.status !== 'published' || Boolean(o.closed_at) || isExpired(o);
 const routeResult = resolveApplicationRoutes(o);
 const routes = routeResult.routes;
 const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(o)}`;
+const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const companyWebsite = safeOutboundUrl(o.company?.website);
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
@@ -308,6 +309,7 @@ if (!closed) {
               </span>
             </div>
             <div class="meta-list__row"><span class="meta-list__key">Discovered</span><span class="meta-list__val">{formatDate(o.discovered_at)}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Listing freshness</span><span class="meta-list__val">Removed after 90 days · {formatDate(expiresAt)}</span></div>
             <div class="meta-list__row"><span class="meta-list__key">Published</span><span class="meta-list__val">{o.published_at ? formatDate(o.published_at) : 'Not published'}</span></div>
             <div class="meta-list__row"><span class="meta-list__key">Deadline</span><span class="meta-list__val">{o.deadline ? formatDate(o.deadline) : 'Not specified'}</span></div>
             <div class="meta-list__row"><span class="meta-list__key">Application route</span><span class="meta-list__val">{APPLICATION_METHOD_LABELS[o.application_method]}</span></div>

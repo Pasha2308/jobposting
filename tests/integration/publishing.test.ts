@@ -68,6 +68,19 @@ describe('publication', () => {
     expect(await store.linkedinDeliveryCounts()).toMatchObject({ queued: 1 });
   });
 
+  it('does not renew the 90-day age when an opportunity is edited', async () => {
+    const { store, opportunity } = await createPending();
+    const originalDiscovery = opportunity.discovered_at;
+    const originalExpiry = opportunity.expires_at;
+    const updated = await store.updateOpportunity(opportunity.id, {
+      title: 'Updated title from the original source',
+      discovered_at: '2999-01-01T00:00:00.000Z',
+      expires_at: '2999-04-01',
+    });
+    expect(updated.discovered_at).toBe(originalDiscovery);
+    expect(updated.expires_at).toBe(originalExpiry);
+  });
+
   it('blocks non-English listings from every publication path', async () => {
     const { store, opportunity } = await createPending({
       summary: 'Buscamos una persona con experiencia para liderar el equipo de producto. Trabajarás con los fundadores y ayudarás a nuestros clientes a crecer. El puesto es remoto y ofrece beneficios competitivos.',
@@ -75,7 +88,7 @@ describe('publication', () => {
     await expect(
       publishOpportunity(store, opportunity.id, 'admin:test@example.com', SITE_URL),
     ).rejects.toMatchObject({ code: 'not_publishable', status: 422 });
-    expect((await store.getOpportunityById(opportunity.id))?.status).toBe('pending_review');
+    expect((await store.getOpportunityById(opportunity.id))?.status).toBe('draft');
   });
 
   it('blocks publication when no application route is usable', async () => {
@@ -91,7 +104,7 @@ describe('publication', () => {
     ).rejects.toMatchObject({ code: 'not_publishable', status: 422 });
 
     const still = await store.getOpportunityById(opportunity.id);
-    expect(still?.status).toBe('pending_review');
+    expect(still?.status).toBe('draft');
     expect(still?.published_at).toBeNull();
   });
 
@@ -154,5 +167,14 @@ describe('publication', () => {
     );
     expect(result.succeeded).toContain(opportunity.id);
     expect(result.failed.map((failure) => failure.id)).toContain('missing-id');
+  });
+
+  it('returns field-level publication blockers for each failed bulk item', async () => {
+    const { store, opportunity } = await createPending();
+    await store.updateOpportunity(opportunity.id, { category_id: null });
+    const result = await bulkTransition(store, [opportunity.id], 'publish', 'admin:test@example.com', SITE_URL);
+    expect(result.succeeded).toHaveLength(0);
+    expect(result.failed[0]?.reason).toMatch(/missing information/i);
+    expect(result.failed[0]?.blocking).toContain('A category is required.');
   });
 });

@@ -276,6 +276,8 @@ export class MemoryStore implements Store {
     ) {
       throw new Error('Source already captured.');
     }
+    const discoveredAt = draft.discovered_at ?? now();
+    const expiresAt = draft.expires_at ?? new Date(Date.parse(discoveredAt) + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const created: Opportunity = {
       ...draft,
       job_code: draft.job_code ?? `HC-${String(this.nextJobCode++).padStart(6, '0')}`,
@@ -286,7 +288,8 @@ export class MemoryStore implements Store {
       quality_flags: draft.quality_flags ?? [],
       completeness_score: draft.completeness_score ?? null,
       id: id(),
-      discovered_at: draft.discovered_at ?? now(),
+      discovered_at: discoveredAt,
+      expires_at: expiresAt,
       published_at: draft.published_at ?? null,
       closed_at: draft.closed_at ?? null,
       created_by: draft.created_by ?? null,
@@ -334,9 +337,14 @@ export class MemoryStore implements Store {
     if (patch.status === 'published' && !pubNumber) {
       pubNumber = this.nextPublicationNumber++;
     }
+    const safePatch = { ...patch };
+    delete safePatch.discovered_at;
+    delete safePatch.expires_at;
     this.opportunities[index] = {
       ...existing,
-      ...patch,
+      ...safePatch,
+      discovered_at: existing.discovered_at,
+      expires_at: existing.expires_at,
       publication_number: pubNumber,
       updated_at: now(),
     };
@@ -957,6 +965,17 @@ export class MemoryStore implements Store {
   async updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
     this.settings = { ...this.settings, ...patch };
     return { ...this.settings };
+  }
+
+  async expireStaleOpportunities(): Promise<number> {
+    const today = new Date().toISOString().slice(0, 10);
+    const stale = this.opportunities.filter((item) => item.status === 'published' && Boolean(item.expires_at) && item.expires_at! <= today);
+    for (const item of stale) await this.updateOpportunity(item.id, { status: 'expired', closed_at: now() });
+    return stale.length;
+  }
+
+  async activateNextCompanySourceBatch(): Promise<number> {
+    return 0;
   }
 
   async listCompanySources(companyId?: string): Promise<CompanySource[]> {

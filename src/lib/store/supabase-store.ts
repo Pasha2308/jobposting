@@ -123,6 +123,7 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     quality_flags: strArray(row.quality_flags),
     completeness_score: num(row.completeness_score),
     discovered_at: String(row.discovered_at ?? new Date().toISOString()),
+    expires_at: str(row.expires_at),
     published_at: str(row.published_at),
     last_verified_at: str(row.last_verified_at),
     closed_at: str(row.closed_at),
@@ -608,6 +609,7 @@ export class SupabaseStore implements Store {
       .select('job_code,updated_at')
       .eq('status', 'published')
       .is('closed_at', null)
+      .gte('expires_at', today)
       .or(`deadline.is.null,deadline.gte.${today}`)
       .limit(5000);
     if (error) fail(error, 'Could not load sitemap');
@@ -1215,6 +1217,18 @@ export class SupabaseStore implements Store {
       .upsert({ key: 'app', value: next, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (error) fail(error, 'Could not save settings');
     return next;
+  }
+
+  async expireStaleOpportunities(): Promise<number> {
+    const { data, error } = await this.client.rpc('expire_stale_opportunities');
+    if (error) fail(error, 'Could not expire stale opportunities');
+    return Number(data ?? 0);
+  }
+
+  async activateNextCompanySourceBatch(): Promise<number> {
+    const { data, error } = await this.client.rpc('activate_next_company_source_batch');
+    if (error) fail(error, 'Could not activate the next verified company source batch');
+    return Number(data ?? 0);
   }
 
   async listCompanySources(companyId?: string): Promise<CompanySource[]> {

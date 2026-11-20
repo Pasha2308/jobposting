@@ -127,11 +127,14 @@ export async function loadAnalytics(env: AppEnv, days = 30): Promise<LoadResult<
 /** Publicly visible states: live listings plus preserved closed ones. */
 export function isPubliclyVisible(opportunity: OpportunityWithRelations | null): boolean {
   if (!opportunity) return false;
-  return ['published', 'closed', 'expired'].includes(opportunity.status);
+  if (!['published', 'closed'].includes(opportunity.status)) return false;
+  if (opportunity.expires_at && opportunity.expires_at <= new Date().toISOString().slice(0, 10)) return false;
+  return true;
 }
 
-export function isExpired(opportunity: Pick<OpportunityWithRelations, 'deadline' | 'status'>): boolean {
+export function isExpired(opportunity: Pick<OpportunityWithRelations, 'deadline' | 'status' | 'expires_at'>): boolean {
   if (opportunity.status === 'expired') return true;
+  if (opportunity.expires_at && opportunity.expires_at <= new Date().toISOString().slice(0, 10)) return true;
   if (!opportunity.deadline) return false;
   const deadline = Date.parse(`${opportunity.deadline}T23:59:59.999Z`);
   return Number.isFinite(deadline) && deadline < Date.now();

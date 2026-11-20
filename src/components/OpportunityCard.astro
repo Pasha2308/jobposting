@@ -24,6 +24,7 @@ const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_per
 const experience = formatExperience(o.experience_min_years, o.experience_max_years);
 const href = `/opportunities/${o.job_code ?? o.slug}`;
 const sourceDateVerified = Boolean(o.original_posted_at && o.last_verified_at);
+const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 ---
 
 <article class:list={['opp-card', featured && 'opp-card--featured']}>
@@ -71,7 +72,7 @@ const sourceDateVerified = Boolean(o.original_posted_at && o.last_verified_at);
   </div>
 
   <div class="opp-card__foot">
-    <span>Discovered {relativeTime(o.discovered_at).toLowerCase()}</span>
+    <span title="Hustler Community removes listings 90 days after their first discovery.">Discovered {relativeTime(o.discovered_at).toLowerCase()} · expires {formatDate(expiresAt, { withYear: false })}</span>
     <span class="opp-card__cta">View role <Icon name="arrow-right" size={13} /></span>
   </div>
 </article>

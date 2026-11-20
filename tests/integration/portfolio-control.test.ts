@@ -21,8 +21,12 @@ describe('portfolio control bot', () => {
       portfolioTelegramWebhookSecret: 'portfolio-secret',
       telegramAdminIds: [111],
     });
+    await store.createCategory({ name: 'Other Startup Roles', slug: 'other-startup-roles', description: 'Startup roles without a narrower category.', is_active: true, is_featured: false, sort_order: 100 });
     const company = await store.createCompany({ name: 'Northstar', slug: 'northstar', website: 'https://northstar.example', careers_url: 'https://northstar.example/careers', verified: true });
     await store.upsertCompanySource({ company_id: company.id, provider: 'greenhouse', board_identifier: 'northstar', source_url: 'https://boards.greenhouse.io/northstar', sync_status: 'idle' });
+    const stagedSource = await store.upsertCompanySource({ company_id: company.id, provider: 'greenhouse', board_identifier: 'staged', source_url: 'https://boards.greenhouse.io/staged', sync_status: 'idle' });
+    stagedSource.is_active = false;
+    const firstPublished = new Date(Date.now() - 86_400_000).toISOString();
     const fetcher: typeof fetch = async (input) => {
       const url = String(input);
       if (url.includes('jumpcap-jobs-public/jobs.json')) {
@@ -36,8 +40,9 @@ describe('portfolio control bot', () => {
         return new Response(xml, { status: 200 });
       }
       if (url.startsWith('https://boards-api.greenhouse.io/v1/boards/northstar/jobs')) {
-        return responseJson({ jobs: [{ id: 101, title: 'Senior Data Engineer', absolute_url: 'https://boards.greenhouse.io/northstar/jobs/101', content: '<p>Build data pipelines and maintain the analytics platform.</p>', location: { name: 'Remote, US' }, updated_at: new Date().toISOString() }] });
+        return responseJson({ jobs: [{ id: 101, title: 'Senior Data Engineer', absolute_url: 'https://boards.greenhouse.io/northstar/jobs/101', content: '<p>Build and maintain reliable data pipelines for the company analytics platform. Partner with product and engineering teams to improve data quality, documentation, and reporting for customers.</p>', location: { name: 'Remote, US' }, first_published: firstPublished, updated_at: new Date().toISOString() }] });
       }
+      if (url.includes('/boards/staged/')) throw new Error('Inactive company source should not be queried.');
       throw new Error('Unexpected source URL: ' + url);
     };
     const start: TelegramUpdate = {
@@ -62,10 +67,13 @@ describe('portfolio control bot', () => {
     expect(run?.status).toBe('completed');
     expect(run?.full_backfill).toBe(false);
     expect(run?.report).toMatchObject({ scanned: 3, created: 3 });
-    expect((await store.listAdmin({ status: 'pending_review', page: 1, pageSize: 10 })).total).toBe(3);
+    expect((await store.listAdmin({ status: 'pending_review', page: 1, pageSize: 10 })).total).toBe(1);
+    expect((await store.listAdmin({ status: 'draft', page: 1, pageSize: 10 })).total).toBe(2);
+    expect(store.opportunities.find((job) => job.title === 'Software Engineer')?.quality_flags).toContain('needs_information');
+    expect(store.opportunities.find((job) => job.title === 'Senior Data Engineer')?.original_posted_at).toBe(firstPublished.slice(0, 10));
     expect(messenger.sent.some((message) => message.text.includes('last successful source checkpoints'))).toBe(true);
     expect(messenger.sent.at(-1)?.text).toContain('Latest search: completed');
-    expect(messenger.sent.at(-1)?.text).toContain('Pending admin review: 3');
+    expect(messenger.sent.at(-1)?.text).toContain('Pending admin review: 1');
   });
 
   it('queues a factual draft on publication and sends/acknowledges one batch once', async () => {

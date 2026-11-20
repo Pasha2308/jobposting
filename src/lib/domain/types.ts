@@ -214,6 +214,8 @@ export type Opportunity = {
   completeness_score: number | null;
 
   discovered_at: string;
+  /** First-add based expiry; immutable even if a listing is edited or rediscovered. */
+  expires_at?: string | null;
   published_at: string | null;
   last_verified_at: string | null;
   closed_at: string | null;
@@ -355,6 +357,9 @@ export type CompanySource = {
   last_checked_at: string | null;
   next_check_at: string | null;
   sync_status: 'idle' | 'ok' | 'error' | 'disabled';
+  is_active?: boolean;
+  activation_batch?: number | null;
+  activated_at?: string | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;
