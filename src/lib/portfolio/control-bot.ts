@@ -94,7 +94,12 @@ async function runFetch(userId: number, chatId: number, deps: BotDeps): Promise<
     await messenger.sendMessage(chatId, 'A job search is already running. Use /status to check its progress.');
     return;
   }
-  await messenger.sendMessage(chatId, fullBackfill ? 'Starting the initial full backfill of enabled, authorized sources…' : 'Starting a manual scan for new jobs from the last successful source checkpoints…');
+  // Starting the scan must not wait on an external Telegram send. The webhook
+  // has already acknowledged the update; keep the operator notice best-effort.
+  void messenger.sendMessage(chatId, fullBackfill ? 'Starting the initial full backfill of enabled, authorized sources…' : 'Starting a manual scan for new jobs from the last successful source checkpoints…')
+    .catch((error) => console.warn('[portfolio-bot] FETCH acknowledgement failed; continuing discovery', {
+      reason: error instanceof Error ? error.message.slice(0, 200) : 'Telegram send failed.',
+    }));
   try {
     const result = await discoverPortfolioJobs(env, store, {
       manual: true,

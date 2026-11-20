@@ -76,6 +76,43 @@ describe('portfolio control bot', () => {
     expect(messenger.sent.at(-1)?.text).toContain('Pending admin review: 1');
   });
 
+  it('continues and records FETCH when the starting Telegram acknowledgement fails', async () => {
+    const store = new MemoryStore();
+    const env = testEnv({
+      portfolioTelegramBotToken: 'test-portfolio-token',
+      portfolioTelegramChatId: '-10012345',
+      portfolioTelegramWebhookSecret: 'portfolio-secret',
+      telegramAdminIds: [111],
+    });
+    await store.setPortfolioAdminChat(111, -10012345);
+    let failStartingMessage = true;
+    const messenger = {
+      sendMessage: async (_chatId: number, text: string) => {
+        if (failStartingMessage && text.startsWith('Starting a manual scan')) {
+          failStartingMessage = false;
+          throw new Error('Telegram is temporarily unreachable.');
+        }
+        return { message_id: 1 };
+      },
+      editMessageText: async () => undefined,
+      answerCallbackQuery: async () => undefined,
+    };
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes('jumpcap-jobs-public/jobs.json')) return responseJson({ jobs: [] });
+      if (url === 'https://jobb.a-hub.se/jobs.rss') {
+        return new Response('<rss><channel><item><title>Nothing recent</title><link>https://example.com/job/1</link><guid>none</guid><pubDate>Mon, 1 Jan 2001 00:00:00 GMT</pubDate></item></channel></rss>', { status: 200 });
+      }
+      throw new Error('Unexpected source URL: ' + url);
+    };
+    await handlePortfolioBotUpdate({
+      update_id: 1004,
+      message: { message_id: 4, from: { id: 111 }, chat: { id: -10012345, type: 'group' }, text: '/fetch' },
+    }, { env, store, messenger, fetcher });
+    expect((await store.latestPortfolioSearch())?.status).toBe('completed');
+    expect((await store.latestPortfolioSearch())?.report).toMatchObject({ scanned: 2, created: 0 });
+  });
+
   it('queues a factual draft on publication and sends/acknowledges one batch once', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();
