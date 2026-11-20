@@ -29,7 +29,10 @@ import type {
   CaptureFilters,
   CommentSetInput,
   CommentWithOpportunity,
+  LinkedInDeliveryCounts,
+  LinkedInDeliveryItem,
   LocationCount,
+  PortfolioSearchRun,
   Store,
 } from './types';
 
@@ -51,10 +54,17 @@ export class MemoryStore implements Store {
   events: OpportunityEvent[] = [];
   profiles: AdminProfile[] = [];
   activity: ActivityLog[] = [];
-  telegramUpdates = new Set<number>();
+  telegramUpdates = new Set<string>();
   settings: AppSettings = { ...DEFAULT_SETTINGS };
   companySources: CompanySource[] = [];
   nextPublicationNumber = 1;
+  nextJobCode = 1;
+  portfolioDiscoveryState = new Map<string, import('./types').PortfolioDiscoveryState>();
+  private portfolioNotificationClaims = new Set<string>();
+  private portfolioAdminChats = new Map<number, number>();
+  private portfolioSearchRuns: PortfolioSearchRun[] = [];
+  private linkedinQueue = new Map<string, { status: 'queued' | 'sending' | 'sent' | 'acknowledged' | 'failed'; batch_number: number | null; telegram_message_id: number | null; attempts: number; last_error: string | null; retryable: boolean; created_at: string }>();
+  private nextLinkedInBatch = 1;
 
   /* categories */
   async listCategories(opts: { activeOnly?: boolean } = {}): Promise<Category[]> {
@@ -247,6 +257,11 @@ export class MemoryStore implements Store {
     return found ? this.withRelations(found) : null;
   }
 
+  async getOpportunityByJobCode(jobCode: string): Promise<OpportunityWithRelations | null> {
+    const found = this.opportunities.find((o) => o.job_code?.toUpperCase() === jobCode.toUpperCase());
+    return found ? this.withRelations(found) : null;
+  }
+
   async createOpportunity(draft: OpportunityDraft): Promise<Opportunity> {
     if (this.opportunities.some((o) => o.slug === draft.slug)) throw new Error('Slug already exists.');
     const openingKey = draft.opening_key ?? 1;
@@ -263,6 +278,7 @@ export class MemoryStore implements Store {
     }
     const created: Opportunity = {
       ...draft,
+      job_code: draft.job_code ?? `HC-${String(this.nextJobCode++).padStart(6, '0')}`,
       education_requirements: draft.education_requirements ?? [],
       benefits: draft.benefits ?? [],
       languages: draft.languages ?? [],
@@ -286,6 +302,30 @@ export class MemoryStore implements Store {
     return created;
   }
 
+  async getPortfolioDiscoveryState(sourceId: string) {
+    return this.portfolioDiscoveryState.get(sourceId) ?? null;
+  }
+
+  async updatePortfolioDiscoveryState(state: import('./types').PortfolioDiscoveryState): Promise<void> {
+    this.portfolioDiscoveryState.set(state.source_id, state);
+  }
+
+  async listUnnotifiedPortfolioOpportunities(limit = 20): Promise<OpportunityWithRelations[]> {
+    return this.opportunities
+      .filter((o) => o.is_portfolio_discovered && o.status === 'published' && Boolean(o.published_at) && !o.portfolio_notified_at)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .slice(0, Math.min(100, limit))
+      .map((o) => this.withRelations(o));
+  }
+
+  async claimPortfolioNotification(opportunityId: string): Promise<boolean> {
+    const opportunity = this.opportunities.find((item) => item.id === opportunityId);
+    if (!opportunity || !opportunity.is_portfolio_discovered || opportunity.status !== 'published' || !opportunity.published_at || opportunity.portfolio_notified_at || this.portfolioNotificationClaims.has(opportunityId)) return false;
+    this.portfolioNotificationClaims.add(opportunityId);
+    opportunity.portfolio_notification_claimed_at = now();
+    return true;
+  }
+
   async updateOpportunity(oppId: string, patch: Partial<Opportunity>): Promise<Opportunity> {
     const index = this.opportunities.findIndex((o) => o.id === oppId);
     if (index < 0) throw new Error('Opportunity not found');
@@ -300,6 +340,10 @@ export class MemoryStore implements Store {
       publication_number: pubNumber,
       updated_at: now(),
     };
+    if ('portfolio_notification_error' in patch || 'portfolio_notified_at' in patch) {
+      this.portfolioNotificationClaims.delete(oppId);
+      this.opportunities[index].portfolio_notification_claimed_at = null;
+    }
     return this.opportunities[index];
   }
 
@@ -368,7 +412,7 @@ export class MemoryStore implements Store {
   }
 
   async listPublicSlugs(): Promise<{ slug: string; updated_at: string }[]> {
-    return this.live().map((o) => ({ slug: o.slug, updated_at: o.updated_at }));
+    return this.live().map((o) => ({ slug: o.job_code ?? o.slug, updated_at: o.updated_at }));
   }
 
   async listLocations(): Promise<LocationCount[]> {
@@ -837,10 +881,73 @@ export class MemoryStore implements Store {
     return this.activity.slice(0, limit);
   }
 
-  async claimTelegramUpdate(updateId: number): Promise<boolean> {
-    if (this.telegramUpdates.has(updateId)) return false;
-    this.telegramUpdates.add(updateId);
+  async claimTelegramUpdate(updateId: number, _telegramUserId?: number | null, _updateType?: string | null, botKey: 'capture' | 'portfolio' = 'capture'): Promise<boolean> {
+    const key = `${botKey}:${updateId}`;
+    if (this.telegramUpdates.has(key)) return false;
+    this.telegramUpdates.add(key);
     return true;
+  }
+
+  async getPortfolioAdminChat(telegramUserId: number): Promise<number | null> { return this.portfolioAdminChats.get(telegramUserId) ?? null; }
+  async setPortfolioAdminChat(telegramUserId: number, chatId: number): Promise<void> { this.portfolioAdminChats.set(telegramUserId, chatId); }
+  async isPortfolioChatVerified(chatId: number): Promise<boolean> { return [...this.portfolioAdminChats.values()].includes(chatId); }
+  async startPortfolioSearch(requestedBy: number, fullBackfill: boolean): Promise<string | null> {
+    if (this.portfolioSearchRuns.some((run) => run.status === 'running')) return null;
+    const run: PortfolioSearchRun = { id: id(), requested_by: requestedBy, status: 'running', full_backfill: fullBackfill, started_at: now(), finished_at: null, report: {} };
+    this.portfolioSearchRuns.unshift(run);
+    return run.id;
+  }
+  async finishPortfolioSearch(runId: string, status: 'completed' | 'partial' | 'failed', report: Record<string, unknown>): Promise<void> {
+    const run = this.portfolioSearchRuns.find((item) => item.id === runId);
+    if (run) Object.assign(run, { status, finished_at: now(), report });
+  }
+  async updatePortfolioSearchProgress(runId: string, report: Record<string, unknown>): Promise<void> {
+    const run = this.portfolioSearchRuns.find((item) => item.id === runId);
+    if (run) run.report = { ...report };
+  }
+  async latestPortfolioSearch(): Promise<PortfolioSearchRun | null> { return this.portfolioSearchRuns[0] ?? null; }
+  async enqueueLinkedInPost(opportunityId: string): Promise<boolean> {
+    const opportunity = this.opportunities.find((item) => item.id === opportunityId);
+    if (!opportunity || opportunity.status !== 'published' || !opportunity.published_at || !opportunity.linkedin_post_draft || this.linkedinQueue.has(opportunityId)) return false;
+    this.linkedinQueue.set(opportunityId, { status: 'queued', batch_number: null, telegram_message_id: null, attempts: 0, last_error: null, retryable: true, created_at: now() });
+    return true;
+  }
+  async claimNextLinkedInDeliveryBatch(limit = 30): Promise<LinkedInDeliveryItem[]> {
+    const active = [...this.linkedinQueue.values()].find((item) => item.batch_number !== null && ['sent', 'failed', 'sending'].includes(item.status));
+    const batch = active?.batch_number ?? this.nextLinkedInBatch++;
+    const rows = [...this.linkedinQueue.entries()].filter(([, item]) => active
+      ? item.batch_number === batch && item.status === 'failed' && item.retryable
+      : item.status === 'queued').slice(0, Math.max(1, Math.min(30, limit)));
+    for (const [, item] of rows) { item.status = 'sending'; item.batch_number = batch; item.attempts += 1; }
+    return rows.map(([opportunity_id]) => ({ opportunity_id, batch_number: batch }));
+  }
+  async setLinkedInDeliveryState(opportunityId: string, state: 'sent' | 'failed', details: { telegramMessageId?: number; error?: string; retryable?: boolean } = {}): Promise<void> {
+    const item = this.linkedinQueue.get(opportunityId);
+    if (!item) return;
+    item.status = state;
+    item.telegram_message_id = details.telegramMessageId ?? item.telegram_message_id;
+    item.last_error = details.error ?? null;
+    item.retryable = details.retryable ?? false;
+  }
+  async prepareLinkedInDeliveryRetry(batchNumber: number): Promise<void> {
+    for (const item of this.linkedinQueue.values()) if (item.batch_number === batchNumber && item.status === 'failed') item.retryable = true;
+  }
+  async acknowledgeLinkedInDeliveryBatch(batchNumber: number): Promise<boolean> {
+    const rows = [...this.linkedinQueue.values()].filter((item) => item.batch_number === batchNumber);
+    if (!rows.length || rows.some((item) => item.status === 'failed' || item.status === 'sending') || !rows.some((item) => item.status === 'sent')) return false;
+    for (const item of rows) if (item.status === 'sent') item.status = 'acknowledged';
+    return true;
+  }
+  async currentLinkedInDeliveryBatch(): Promise<number | null> {
+    return [...this.linkedinQueue.values()].find((item) => item.batch_number !== null && ['sent', 'failed', 'sending'].includes(item.status))?.batch_number ?? null;
+  }
+  async linkedinDeliveryCounts(): Promise<LinkedInDeliveryCounts> {
+    const counts: LinkedInDeliveryCounts = { queued: 0, sending: 0, sent: 0, acknowledged: 0, failed: 0 };
+    for (const item of this.linkedinQueue.values()) counts[item.status] += 1;
+    return counts;
+  }
+  async countPublishedWithoutLinkedInDraft(): Promise<number> {
+    return this.opportunities.filter((item) => item.status === 'published' && Boolean(item.published_at) && !item.linkedin_post_draft).length;
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -885,6 +992,15 @@ export class MemoryStore implements Store {
     };
     this.companySources.push(source);
     return source;
+  }
+
+  async recordCompanySourceSync(sourceId: string, status: 'ok' | 'error', error?: string | null): Promise<void> {
+    const source = this.companySources.find((item) => item.id === sourceId);
+    if (!source) return;
+    source.sync_status = status;
+    source.last_checked_at = now();
+    source.error_message = error ?? null;
+    source.updated_at = now();
   }
 
   /** Test helper: seed a duplicate candidate directly. */

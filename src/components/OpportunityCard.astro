@@ -22,7 +22,7 @@ const fresh = freshness(o);
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
 const experience = formatExperience(o.experience_min_years, o.experience_max_years);
-const href = `/opportunities/${o.slug}`;
+const href = `/opportunities/${o.job_code ?? o.slug}`;
 const sourceDateVerified = Boolean(o.original_posted_at && o.last_verified_at);
 ---
 

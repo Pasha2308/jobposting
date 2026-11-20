@@ -168,7 +168,7 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
                   <div class="actions">
                     <a class="btn btn--outline btn--sm" href={`/admin/opportunities/${o.id}`}>Edit</a>
                     {o.status === 'published' && (
-                      <a class="btn btn--ghost btn--sm" href={`/opportunities/${o.slug}`} target="_blank" rel="noopener" aria-label="View public page">
+                      <a class="btn btn--ghost btn--sm" href={`/opportunities/${o.job_code ?? o.slug}`} target="_blank" rel="noopener" aria-label="View public page">
                         <Icon name="eye" size={13} />
                       </a>
                     )}

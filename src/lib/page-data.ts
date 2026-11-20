@@ -86,6 +86,10 @@ export async function loadOpportunity(env: AppEnv, slug: string): Promise<LoadRe
   return load(env, (store) => store.getOpportunityBySlug(slug), null);
 }
 
+export async function loadOpportunityByJobCode(env: AppEnv, jobCode: string): Promise<LoadResult<OpportunityWithRelations | null>> {
+  return load(env, (store) => store.getOpportunityByJobCode(jobCode), null);
+}
+
 export async function loadOpportunityById(env: AppEnv, id: string): Promise<LoadResult<OpportunityWithRelations | null>> {
   return load(env, (store) => store.getOpportunityById(id), null);
 }

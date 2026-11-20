@@ -40,6 +40,18 @@ export default function OpportunityEditor({ opportunity, categories, companies, 
   const o = opportunity;
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
+  const [draftCopied, setDraftCopied] = useState(false);
+
+  async function copyLinkedInDraft() {
+    if (!o?.linkedin_post_draft) return;
+    try {
+      await navigator.clipboard.writeText(o.linkedin_post_draft);
+      setDraftCopied(true);
+      window.setTimeout(() => setDraftCopied(false), 1800);
+    } catch {
+      setFeedback({ kind: 'error', message: 'Could not copy the LinkedIn draft. Select and copy the text manually.' });
+    }
+  }
 
   async function submit(event: { preventDefault: () => void; currentTarget: HTMLFormElement }) {
     event.preventDefault();
@@ -401,13 +413,14 @@ export default function OpportunityEditor({ opportunity, categories, companies, 
                   </button>
                 ))}
               </div>
+              {o?.job_code && <p className="tiny muted" style={{ marginTop: '0.75rem' }}>Job ID: <strong>{o.job_code}</strong></p>}
               {o?.published_at && (
                 <p className="tiny muted" style={{ marginTop: '0.75rem' }}>
                   Published {formatDateTime(o.published_at)}
                   {o.slug && (
                     <>
                       {' · '}
-                      <a href={`/opportunities/${o.slug}`} target="_blank" rel="noopener" style={{ textDecoration: 'underline' }}>
+                      <a href={`/opportunities/${o.job_code ?? o.slug}`} target="_blank" rel="noopener" style={{ textDecoration: 'underline' }}>
                         View public page
                       </a>
                     </>
@@ -416,6 +429,19 @@ export default function OpportunityEditor({ opportunity, categories, companies, 
               )}
             </div>
           </section>
+
+          {o?.linkedin_post_draft && (
+            <section className="panel">
+              <div className="panel__head"><span className="panel__title">LinkedIn post draft</span></div>
+              <div className="panel__body">
+                <p className="tiny muted" style={{ marginTop: 0 }}>Factual draft from the listing fields. Copy and review before posting.</p>
+                <textarea className="textarea" rows={9} readOnly value={o.linkedin_post_draft} aria-label="LinkedIn post draft" />
+                <button className="button button--secondary" type="button" onClick={copyLinkedInDraft} style={{ marginTop: '0.75rem' }}>
+                  {draftCopied ? 'Copied' : 'Copy LinkedIn Post'}
+                </button>
+              </div>
+            </section>
+          )}
 
           <section className="panel">
             <div className="panel__head"><span className="panel__title">Application route</span></div>

@@ -4,6 +4,8 @@ import { validateForPublication } from '../domain/validation';
 import type { Store } from '../store/types';
 import { refreshComments } from './comments';
 import { ServiceError } from './errors';
+import { opportunityPublicId } from '../domain/url';
+import { buildLinkedInDraft } from '../portfolio/linkedin-draft';
 
 export { ServiceError };
 
@@ -33,7 +35,7 @@ export async function publishOpportunity(
       opportunity,
       alreadyPublished: true,
       warnings: ['This opportunity is already published.'],
-      listingUrl: `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.slug}`,
+      listingUrl: `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}`,
     };
   }
 
@@ -52,10 +54,13 @@ export async function publishOpportunity(
     });
   }
 
+  const publicUrl = `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}`;
+  const postDraft = buildLinkedInDraft(opportunity, publicUrl);
   const updated = await store.updateOpportunity(opportunity.id, {
     status: 'published',
     published_at: opportunity.published_at ?? new Date().toISOString(),
     closed_at: null,
+    linkedin_post_draft: postDraft,
   });
 
   const withRelations = { ...updated, company: opportunity.company, category: opportunity.category } as OpportunityWithRelations;
@@ -70,6 +75,8 @@ export async function publishOpportunity(
       .catch(() => undefined);
   }
 
+  await store.enqueueLinkedInPost(opportunity.id);
+
   await store.logActivity({
     actor,
     action: 'opportunity.published',
@@ -82,7 +89,7 @@ export async function publishOpportunity(
     opportunity: withRelations,
     alreadyPublished: false,
     warnings: validation.warnings,
-    listingUrl: `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.slug}`,
+    listingUrl: `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}`,
   };
 }
 

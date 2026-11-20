@@ -4,6 +4,7 @@ import { requireStore } from '../../../../../lib/services/context';
 import { ServiceError } from '../../../../../lib/services/errors';
 import { apiError, assertSameOrigin, jsonResponse, readJson } from '../../../../../lib/http';
 import type { LifecycleAction } from '../../../../../lib/domain/lifecycle';
+import { dispatchPortfolioDelivery } from '../../../../../lib/portfolio/linkedin-delivery';
 
 const ACTIONS: LifecycleAction[] = [
   'submit_for_review',
@@ -31,6 +32,9 @@ export const POST: APIRoute = async (context) => {
     if (!ACTIONS.includes(action)) throw new ServiceError('invalid_action', 'Unknown status action.', 400);
 
     const result = await transitionOpportunity(store, id, action, `admin:${admin.email}`, context.locals.env.siteUrl);
+    if (action === 'publish' || action === 'reopen') {
+      await dispatchPortfolioDelivery(context.locals.env, store);
+    }
     return jsonResponse({ ok: true, status: result.opportunity.status, warnings: result.warnings });
   } catch (error) {
     return apiError(error);

@@ -194,7 +194,7 @@ describe('Telegram capture bot', () => {
     expect(published?.status).toBe('published');
     expect(published?.published_at).toBeTruthy();
     expect(messenger.edits[0].text).toMatch(/Published/);
-    expect(messenger.edits[0].text).toContain(`${SITE_URL}/opportunities/${opportunity.slug}`);
+    expect(messenger.edits[0].text).toContain(`${SITE_URL}/opportunities/${opportunity.job_code ?? opportunity.slug}`);
   });
 
   it('rejects a callback for an unknown opportunity without changing anything', async () => {

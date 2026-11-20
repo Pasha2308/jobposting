@@ -706,6 +706,66 @@ a draft or a capture awaiting copied text is never purged. Use **Admin →
 Settings → Source retention → Purge expired source text** for a manual purge.
 Both paths are logged to `activity_logs`.
 
+### Portfolio jobs discovery
+
+The separate portfolio control bot supports `/start`, `/fetch`, `/status`, and
+`/done`, plus FETCH and DONE buttons. Discovery runs only after an admin sends
+`/fetch`; the daily recovery cron no longer searches jobs and remains available
+for retrieval and Telegram delivery retries. The first control-bot fetch reads
+all current jobs exposed by enabled sources; later fetches use each source's last
+successful checkpoint. Jobs go to `pending_review`; they are never published
+automatically. The HC Job ID system and public page routes remain unchanged.
+
+On publication, the app saves a factual LinkedIn draft from the reviewed listing
+fields and queues it once. The separate bot sends up to 30 drafts per batch,
+waits for DONE before advancing, and records sent, acknowledged, and failed
+states. Temporary Telegram rate limits are retried. Failed or interrupted posts
+stay in the same batch. Delivery to Telegram does not mean anything was posted
+to LinkedIn. Admin job details also provide a Copy LinkedIn Post button. The
+manual LinkedIn capture bot keeps its separate token, webhook, and update IDs.
+
+Configure `PORTFOLIO_TELEGRAM_BOT_TOKEN`, numeric `PORTFOLIO_TELEGRAM_CHAT_ID`,
+and `PORTFOLIO_TELEGRAM_WEBHOOK_SECRET`, then apply migration
+`0008_portfolio_control_bot.sql`. In Admin → Settings, register the separate
+webhook at `/api/telegram/portfolio-webhook`. Send `/start` in that configured
+chat from an ID already listed in `TELEGRAM_ADMIN_USER_IDS`. The bot will not
+search or send posts until the sender is allowlisted and the chat is verified.
+
+The Jump Capital first-party page publishes a public JSON feed, and A-Hub links
+its RSS feed from its jobs page. EF, Techstars, a16z and Accel use the official
+Getro API only when an authorized network owner supplies access. Configure:
+
+- `PORTFOLIO_TELEGRAM_BOT_TOKEN`, `PORTFOLIO_TELEGRAM_CHAT_ID`, and
+  `PORTFOLIO_TELEGRAM_WEBHOOK_SECRET` for the separate control and delivery bot.
+  Add the bot to the configured chat; the existing capture-bot variables are
+  unchanged.
+- `PORTFOLIO_GETRO_API_KEY` and `PORTFOLIO_GETRO_NETWORK_IDS` (a JSON object from
+  source IDs such as `entrepreneurs-first`, `techstars`, `a16z`, and `accel` to
+  numeric network IDs) only if the corresponding board owner authorized API
+  access. The key is never sent to the browser or logged.
+- Atomico and Index Ventures are registered Getro candidates and remain
+  disabled until each network separately authorizes its API access. Configure
+  `PORTFOLIO_GETRO_SOURCE_CREDENTIALS` as a JSON object keyed by source ID
+  (`atomico`, `index-ventures`), with each value containing that network's own
+  `apiKey` and `networkId`. Existing Getro settings continue serving only the
+  existing EF, Techstars, a16z and Accel feeds. The integration does not assume
+  one network's credentials cover another.
+
+Antler, HV Capital, General Catalyst, Creandum, Speedinvest, Cherry Ventures,
+and 500 Global are recorded as inactive candidates because their permitted
+machine-readable access has not been verified. Their hosted pages are not
+scraped. Manually configured official Greenhouse, Lever, and Ashby boards in
+`company_sources` are included in `/fetch`. The 100-company watchlist is not
+seeded yet because the official careers URLs and ATS identifiers still need to
+be verified before activation. No weekly company activation is enabled.
+
+Lightspeed, Sequoia, Bessemer and Peak XV use Consider-hosted boards; Consider's
+API terms prohibit using its data to recreate a public job board, so those sources
+are not ingested. Augment's careers endpoint blocks automated access, and LVL1
+does not expose a verified server-side feed in this integration. These are left
+inactive rather than bypassing controls or guessing at job records. All resulting
+opportunities remain in the existing human approval workflow.
+
 ---
 
 ## Brand
@@ -730,8 +790,9 @@ for the asset inventory, tokens and accessibility rules. Official assets live in
 - Vercel Hobby allows one cron run per day. Transient retries are scheduled for
   that next daily run; frequent automatic retries require Pro. Manual **Retry
   retrieval** remains available from the admin workspace.
-- ATS sync (`company_sources`) is schema-ready but intentionally not automated;
-  there is no ATS integration UI yet.
+- ATS scan supports configured Greenhouse, Lever, and Ashby boards when an admin
+  triggers `/fetch`; the 100-company watchlist and its weekly activation UI are
+  not seeded or enabled yet.
 - The in-process rate limiter is per serverless instance. For strict global limits,
   move the counters to a shared store (e.g. a Postgres table or KV).
 - No custom domain is required; if you add one, update `PUBLIC_SITE_URL` and

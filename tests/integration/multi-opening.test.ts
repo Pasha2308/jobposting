@@ -245,9 +245,9 @@ describe('Multiple openings from one LinkedIn post (Scenario 1-12)', () => {
     expect(publicIds).not.toContain(fe.id); // pending review
 
     // 7. Verify each has its own unique working detail page URL
-    expect(pub1.listingUrl).toBe(`${SITE_URL}/opportunities/${fa.slug}`);
-    expect(pub2.listingUrl).toBe(`${SITE_URL}/opportunities/${gm.slug}`);
-    expect(pub3.listingUrl).toBe(`${SITE_URL}/opportunities/${intern.slug}`);
+    expect(pub1.listingUrl).toBe(`${SITE_URL}/opportunities/${fa.job_code ?? fa.slug}`);
+    expect(pub2.listingUrl).toBe(`${SITE_URL}/opportunities/${gm.job_code ?? gm.slug}`);
+    expect(pub3.listingUrl).toBe(`${SITE_URL}/opportunities/${intern.job_code ?? intern.slug}`);
     const uniqueSlugs = new Set([fa.slug, gm.slug, intern.slug, pa.slug, fe.slug]);
     expect(uniqueSlugs.size).toBe(5);
 
@@ -328,7 +328,7 @@ describe('Multiple openings from one LinkedIn post (Scenario 1-12)', () => {
     // Bot edited the message with published link and fixed comment template
     const edit = messenger.edits.find((e) => e.text.includes('Published'));
     expect(edit).toBeTruthy();
-    expect(edit?.text).toContain(`${SITE_URL}/opportunities/${opening2.slug}`);
+    expect(edit?.text).toContain(`${SITE_URL}/opportunities/${opening2.job_code ?? opening2.slug}`);
     expect(edit?.text).toContain('Explore more 1 similar opportunities at Hustler Community:');
   });
 

@@ -44,7 +44,7 @@ const waiting = pending.data.items;
                 <td>
                   <div class="cell-title"><a href={`/admin/opportunities/${o.id}`}>{o.title}</a></div>
                   <div class="cell-sub">
-                    {o.company?.name ?? 'Company not set'} · {o.category?.name ?? 'No category'} ·{' '}
+                    {o.job_code ? `${o.job_code} · ` : ''}{o.company?.name ?? 'Company not set'} · {o.category?.name ?? 'No category'} ·{' '}
                     {[o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Location not specified'}
                   </div>
                 </td>

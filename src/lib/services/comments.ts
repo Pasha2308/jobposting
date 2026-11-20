@@ -1,6 +1,7 @@
 import type { Opportunity, OpportunityWithRelations } from '../domain/types';
 import { generateComments } from '../domain/comments';
 import type { Store } from '../store/types';
+import { opportunityPublicId } from '../domain/url';
 
 export type CommentRefreshResult = {
   comments: Awaited<ReturnType<Store['replaceComments']>>;
@@ -26,7 +27,7 @@ export async function refreshComments(
     null;
 
   const isPublished = opportunity.status === 'published' && Boolean(opportunity.published_at);
-  const listingUrl = `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.slug}`;
+  const listingUrl = `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}`;
   const sets = generateComments({
     title: opportunity.title,
     companyName,

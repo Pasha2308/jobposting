@@ -29,7 +29,7 @@ describe('publication', () => {
     expect(result.alreadyPublished).toBe(false);
     expect(result.opportunity.status).toBe('published');
     expect(result.opportunity.published_at).toBeTruthy();
-    expect(result.listingUrl).toBe(`${SITE_URL}/opportunities/${opportunity.slug}`);
+    expect(result.listingUrl).toBe(`${SITE_URL}/opportunities/${opportunity.job_code ?? opportunity.slug}`);
 
     const publicSearch = await store.searchPublic({});
     expect(publicSearch.items.map((item) => item.id)).toContain(opportunity.id);

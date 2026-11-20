@@ -20,10 +20,12 @@ export interface Messenger {
 
 export class TelegramError extends Error {
   status: number;
-  constructor(message: string, status = 500) {
+  retryAfter: number | null;
+  constructor(message: string, status = 500, retryAfter: number | null = null) {
     super(message);
     this.name = 'TelegramError';
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -50,10 +52,10 @@ export class TelegramClient implements Messenger {
       clearTimeout(timer);
     }
     const data = (await response.json().catch(() => null)) as
-      | { ok?: boolean; result?: T; description?: string }
+      | { ok?: boolean; result?: T; description?: string; parameters?: { retry_after?: number } }
       | null;
     if (!response.ok || !data?.ok) {
-      throw new TelegramError(`Telegram API error: ${data?.description ?? response.status}`, 502);
+      throw new TelegramError(`Telegram API error: ${data?.description ?? response.status}`, response.status, data?.parameters?.retry_after ?? null);
     }
     return data.result as T;
   }

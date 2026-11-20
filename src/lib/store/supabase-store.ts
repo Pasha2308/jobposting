@@ -30,6 +30,10 @@ import type {
   CommentSetInput,
   CommentWithOpportunity,
   LocationCount,
+  LinkedInDeliveryCounts,
+  LinkedInDeliveryItem,
+  PortfolioDiscoveryState,
+  PortfolioSearchRun,
   Store,
 } from './types';
 
@@ -68,6 +72,12 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
   const categoryRaw = row.category as Record<string, unknown> | null | undefined;
   return {
     id: String(row.id),
+    job_code: str(row.job_code) ?? undefined,
+    linkedin_post_draft: str(row.linkedin_post_draft),
+    is_portfolio_discovered: Boolean(row.is_portfolio_discovered),
+    portfolio_notified_at: str(row.portfolio_notified_at),
+    portfolio_notification_error: str(row.portfolio_notification_error),
+    portfolio_notification_claimed_at: str(row.portfolio_notification_claimed_at),
     slug: String(row.slug),
     title: String(row.title),
     company_id: str(row.company_id),
@@ -252,6 +262,8 @@ function mapReport(row: Record<string, unknown>): ReportWithOpportunity {
 function opportunityRow(draft: OpportunityDraft): Record<string, unknown> {
   return {
     slug: draft.slug,
+    ...(draft.linkedin_post_draft !== undefined ? { linkedin_post_draft: draft.linkedin_post_draft } : {}),
+    ...(draft.is_portfolio_discovered !== undefined ? { is_portfolio_discovered: draft.is_portfolio_discovered } : {}),
     title: draft.title,
     company_id: draft.company_id,
     category_id: draft.category_id,
@@ -492,6 +504,16 @@ export class SupabaseStore implements Store {
     return data ? mapOpportunity(data as Record<string, unknown>) : null;
   }
 
+  async getOpportunityByJobCode(jobCode: string): Promise<OpportunityWithRelations | null> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('*, company:companies(id,name,slug,website,careers_url,description,verified), category:categories(id,slug,name)')
+      .eq('job_code', jobCode.toUpperCase())
+      .maybeSingle();
+    if (error) fail(error, 'Could not load opportunity');
+    return data ? mapOpportunity(data as Record<string, unknown>) : null;
+  }
+
   async createOpportunity(draft: OpportunityDraft): Promise<Opportunity> {
     const { data, error } = await this.client.from('opportunities').insert(opportunityRow(draft)).select('*').single();
     if (error) fail(error, 'Could not create opportunity');
@@ -583,13 +605,45 @@ export class SupabaseStore implements Store {
     const today = new Date().toISOString().slice(0, 10);
     const { data, error } = await this.client
       .from('opportunities')
-      .select('slug,updated_at')
+      .select('job_code,updated_at')
       .eq('status', 'published')
       .is('closed_at', null)
       .or(`deadline.is.null,deadline.gte.${today}`)
       .limit(5000);
     if (error) fail(error, 'Could not load sitemap');
-    return (data ?? []) as { slug: string; updated_at: string }[];
+    return (data ?? []).map((row) => ({ slug: String(row.job_code), updated_at: String(row.updated_at) }));
+  }
+
+  async getPortfolioDiscoveryState(sourceId: string): Promise<PortfolioDiscoveryState | null> {
+    const { data, error } = await this.client.from('portfolio_discovery_state').select('*').eq('source_id', sourceId).maybeSingle();
+    if (error) fail(error, 'Could not load portfolio discovery state');
+    return data as PortfolioDiscoveryState | null;
+  }
+
+  async updatePortfolioDiscoveryState(state: PortfolioDiscoveryState): Promise<void> {
+    const { error } = await this.client.from('portfolio_discovery_state').upsert({ ...state, updated_at: new Date().toISOString() });
+    if (error) fail(error, 'Could not update portfolio discovery state');
+  }
+
+  async listUnnotifiedPortfolioOpportunities(limit = 20): Promise<OpportunityWithRelations[]> {
+    const { data, error } = await this.client
+      .from('opportunities')
+      .select('*, company:companies(id,name,slug,website,careers_url,description,verified), category:categories(id,slug,name)')
+      .eq('is_portfolio_discovered', true)
+      .eq('status', 'published')
+      .not('published_at', 'is', null)
+      .is('portfolio_notified_at', null)
+      .or(`portfolio_notification_claimed_at.is.null,portfolio_notification_claimed_at.lt.${new Date(Date.now() - 5 * 60_000).toISOString()}`)
+      .order('created_at', { ascending: true })
+      .limit(Math.min(100, limit));
+    if (error) fail(error, 'Could not load portfolio notifications');
+    return (data ?? []).map((row) => mapOpportunity(row as Record<string, unknown>));
+  }
+
+  async claimPortfolioNotification(opportunityId: string): Promise<boolean> {
+    const { data, error } = await this.client.rpc('claim_portfolio_job_notification', { p_opportunity_id: opportunityId });
+    if (error) fail(error, 'Could not claim portfolio notification');
+    return data === true;
   }
 
   async listLocations(): Promise<LocationCount[]> {
@@ -1040,8 +1094,9 @@ export class SupabaseStore implements Store {
     return (data ?? []) as ActivityLog[];
   }
 
-  async claimTelegramUpdate(updateId: number, telegramUserId?: number | null, updateType?: string | null): Promise<boolean> {
+  async claimTelegramUpdate(updateId: number, telegramUserId?: number | null, updateType?: string | null, botKey: 'capture' | 'portfolio' = 'capture'): Promise<boolean> {
     const { error } = await this.client.from('telegram_updates').insert({
+      bot_key: botKey,
       update_id: updateId,
       telegram_user_id: telegramUserId ?? null,
       update_type: updateType ?? null,
@@ -1049,6 +1104,100 @@ export class SupabaseStore implements Store {
     if (!error) return true;
     if (error.code === '23505') return false;
     fail(error, 'Could not claim Telegram update');
+  }
+
+  async getPortfolioAdminChat(telegramUserId: number): Promise<number | null> {
+    const { data, error } = await this.client.from('portfolio_bot_admin_chats').select('chat_id').eq('telegram_user_id', telegramUserId).maybeSingle();
+    if (error) fail(error, 'Could not load verified portfolio bot chat');
+    return data ? Number(data.chat_id) : null;
+  }
+
+  async setPortfolioAdminChat(telegramUserId: number, chatId: number): Promise<void> {
+    const { error } = await this.client.from('portfolio_bot_admin_chats').upsert({ telegram_user_id: telegramUserId, chat_id: chatId, verified_at: new Date().toISOString() }, { onConflict: 'telegram_user_id' });
+    if (error) fail(error, 'Could not save verified portfolio bot chat');
+  }
+
+  async isPortfolioChatVerified(chatId: number): Promise<boolean> {
+    const { data, error } = await this.client.from('portfolio_bot_admin_chats').select('chat_id').eq('chat_id', chatId).limit(1).maybeSingle();
+    if (error) fail(error, 'Could not verify portfolio bot chat');
+    return Boolean(data);
+  }
+
+  async startPortfolioSearch(requestedBy: number, fullBackfill: boolean): Promise<string | null> {
+    const { data, error } = await this.client.rpc('claim_portfolio_search', { p_requested_by: requestedBy, p_full_backfill: fullBackfill });
+    if (error) fail(error, 'Could not start portfolio search');
+    return typeof data === 'string' ? data : null;
+  }
+
+  async finishPortfolioSearch(id: string, status: 'completed' | 'partial' | 'failed', report: Record<string, unknown>): Promise<void> {
+    const { error } = await this.client.from('portfolio_search_runs').update({ status, report, progress_at: new Date().toISOString(), finished_at: new Date().toISOString() }).eq('id', id);
+    if (error) fail(error, 'Could not save portfolio search result');
+  }
+
+  async updatePortfolioSearchProgress(id: string, report: Record<string, unknown>): Promise<void> {
+    const { error } = await this.client.from('portfolio_search_runs').update({ report, progress_at: new Date().toISOString() }).eq('id', id).eq('status', 'running');
+    if (error) fail(error, 'Could not update portfolio search progress');
+  }
+
+  async latestPortfolioSearch(): Promise<PortfolioSearchRun | null> {
+    const { data, error } = await this.client.from('portfolio_search_runs').select('*').order('started_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) fail(error, 'Could not load portfolio search status');
+    return data as PortfolioSearchRun | null;
+  }
+
+  async enqueueLinkedInPost(opportunityId: string): Promise<boolean> {
+    const { data, error } = await this.client.rpc('enqueue_linkedin_post', { p_opportunity_id: opportunityId });
+    if (error) fail(error, 'Could not queue LinkedIn post');
+    return data === true;
+  }
+
+  async claimNextLinkedInDeliveryBatch(limit = 30): Promise<LinkedInDeliveryItem[]> {
+    const { data, error } = await this.client.rpc('claim_next_linkedin_delivery_batch', { p_limit: Math.min(30, limit) });
+    if (error) fail(error, 'Could not claim LinkedIn delivery batch');
+    return (data ?? []).map((row: Record<string, unknown>) => ({ opportunity_id: String(row.opportunity_id), batch_number: Number(row.batch_number) }));
+  }
+
+  async setLinkedInDeliveryState(opportunityId: string, state: 'sent' | 'failed', details: { telegramMessageId?: number; error?: string; retryable?: boolean } = {}): Promise<void> {
+    const patch = state === 'sent'
+      ? { status: state, telegram_message_id: details.telegramMessageId ?? null, sent_at: new Date().toISOString(), last_error: null, sending_started_at: null, retryable: false }
+      : { status: state, last_error: details.error ?? 'Telegram delivery failed.', sending_started_at: null, retryable: details.retryable ?? false };
+    const { error } = await this.client.from('linkedin_post_delivery_queue').update(patch).eq('opportunity_id', opportunityId);
+    if (error) fail(error, 'Could not update LinkedIn delivery state');
+  }
+
+  async prepareLinkedInDeliveryRetry(batchNumber: number): Promise<void> {
+    const { error } = await this.client.from('linkedin_post_delivery_queue').update({ retryable: true })
+      .eq('batch_number', batchNumber).eq('status', 'failed');
+    if (error) fail(error, 'Could not prepare failed LinkedIn posts for retry');
+  }
+
+  async acknowledgeLinkedInDeliveryBatch(batchNumber: number): Promise<boolean> {
+    const { data, error } = await this.client.rpc('acknowledge_linkedin_delivery_batch', { p_batch_number: batchNumber });
+    if (error) fail(error, 'Could not acknowledge LinkedIn delivery batch');
+    return data === true;
+  }
+
+  async currentLinkedInDeliveryBatch(): Promise<number | null> {
+    const { data, error } = await this.client.from('linkedin_post_delivery_queue').select('batch_number')
+      .in('status', ['sent', 'failed', 'sending']).not('batch_number', 'is', null)
+      .order('batch_number', { ascending: true }).limit(1).maybeSingle();
+    if (error) fail(error, 'Could not load active LinkedIn delivery batch');
+    return data?.batch_number == null ? null : Number(data.batch_number);
+  }
+
+  async linkedinDeliveryCounts(): Promise<LinkedInDeliveryCounts> {
+    const { data, error } = await this.client.from('linkedin_post_delivery_queue').select('status').limit(10000);
+    if (error) fail(error, 'Could not load LinkedIn delivery totals');
+    const counts: LinkedInDeliveryCounts = { queued: 0, sending: 0, sent: 0, acknowledged: 0, failed: 0 };
+    for (const row of data ?? []) if (row.status in counts) counts[row.status as keyof LinkedInDeliveryCounts] += 1;
+    return counts;
+  }
+
+  async countPublishedWithoutLinkedInDraft(): Promise<number> {
+    const { count, error } = await this.client.from('opportunities').select('id', { count: 'exact', head: true })
+      .eq('status', 'published').not('published_at', 'is', null).is('linkedin_post_draft', null);
+    if (error) fail(error, 'Could not count published jobs without LinkedIn drafts');
+    return count ?? 0;
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -1099,5 +1248,15 @@ export class SupabaseStore implements Store {
       .single();
     if (error) fail(error, 'Could not save company source');
     return data as CompanySource;
+  }
+
+  async recordCompanySourceSync(sourceId: string, status: 'ok' | 'error', errorMessage?: string | null): Promise<void> {
+    const { error } = await this.client.from('company_sources').update({
+      sync_status: status,
+      last_checked_at: new Date().toISOString(),
+      error_message: errorMessage ?? null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', sourceId);
+    if (error) fail(error, 'Could not update company source status');
   }
 }

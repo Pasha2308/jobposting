@@ -6,6 +6,7 @@ import CommentStudio from '../../../components/admin/CommentStudio';
 import { loadAdminCategories, loadComments, loadCompanies, loadOpportunityById } from '../../../lib/admin-data';
 import { STATUS_LABELS } from '../../../lib/domain/format';
 import { generateFixedComment } from '../../../lib/domain/comments';
+import { opportunityPublicId } from '../../../lib/domain/url';
 
 const env = Astro.locals.env;
 const id = Astro.params.id ?? '';
@@ -22,7 +23,7 @@ const [categories, companies, comments] = await Promise.all([
 
 const created = Astro.url.searchParams.get('created') === '1';
 const published = opportunity.status === 'published' && Boolean(opportunity.published_at);
-const listingUrl = published ? `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.slug}` : null;
+const listingUrl = published ? `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}` : null;
 const fixedComment =
   published && opportunity.publication_number
     ? generateFixedComment(opportunity.publication_number, env.siteUrl)

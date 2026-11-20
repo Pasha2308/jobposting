@@ -18,6 +18,15 @@ export type AppEnv = {
   telegramBotToken: string | null;
   telegramWebhookSecret: string | null;
   telegramAdminIds: number[];
+  /** Separate, outbound-only Telegram bot used only for portfolio alerts. */
+  portfolioTelegramBotToken: string | null;
+  portfolioTelegramChatId: string | null;
+  portfolioTelegramWebhookSecret: string | null;
+  /** Authorized Getro API access. Network IDs are configured as a JSON object. */
+  portfolioGetroApiKey: string | null;
+  portfolioGetroNetworkIds: Record<string, number>;
+  /** Per-network owner-authorized credentials for newly added Getro boards. */
+  portfolioGetroSourceCredentials: Record<string, { apiKey: string; networkId: number }>;
   turnstileSecretKey: string | null;
   turnstileSiteKey: string | null;
   /** Enables the isolated public JSON-LD adapter. Off unless both flags are on. */
@@ -90,6 +99,29 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     value === '1' || value?.toLowerCase() === 'true' || value?.toLowerCase() === 'yes';
 
   const rawSupabaseUrl = read('SUPABASE_URL');
+  let portfolioGetroNetworkIds: Record<string, number> = {};
+  try {
+    const parsed = JSON.parse(read('PORTFOLIO_GETRO_NETWORK_IDS') || '{}') as Record<string, unknown>;
+    portfolioGetroNetworkIds = Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, number] =>
+        typeof entry[1] === 'number' && Number.isSafeInteger(entry[1]) && entry[1] > 0,
+      ),
+    );
+  } catch {
+    // A malformed optional source map disables only portfolio discovery.
+  }
+  let portfolioGetroSourceCredentials: Record<string, { apiKey: string; networkId: number }> = {};
+  try {
+    const parsed = JSON.parse(read('PORTFOLIO_GETRO_SOURCE_CREDENTIALS') || '{}') as Record<string, unknown>;
+    portfolioGetroSourceCredentials = Object.fromEntries(Object.entries(parsed).flatMap(([sourceId, value]) => {
+      if (!value || typeof value !== 'object') return [];
+      const record = value as Record<string, unknown>;
+      if (typeof record.apiKey !== 'string' || !record.apiKey.trim() || typeof record.networkId !== 'number' || !Number.isSafeInteger(record.networkId) || record.networkId < 1) return [];
+      return [[sourceId, { apiKey: record.apiKey, networkId: record.networkId }]];
+    }));
+  } catch {
+    // Invalid optional credentials disable only the affected candidate integrations.
+  }
   const supabaseUrl = rawSupabaseUrl
     ? rawSupabaseUrl.startsWith('http://') || rawSupabaseUrl.startsWith('https://')
       ? rawSupabaseUrl
@@ -109,6 +141,12 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     telegramBotToken: read('TELEGRAM_BOT_TOKEN') ?? null,
     telegramWebhookSecret: read('TELEGRAM_WEBHOOK_SECRET') ?? null,
     telegramAdminIds: adminIds,
+    portfolioTelegramBotToken: read('PORTFOLIO_TELEGRAM_BOT_TOKEN') ?? null,
+    portfolioTelegramChatId: read('PORTFOLIO_TELEGRAM_CHAT_ID') ?? null,
+    portfolioTelegramWebhookSecret: read('PORTFOLIO_TELEGRAM_WEBHOOK_SECRET') ?? null,
+    portfolioGetroApiKey: read('PORTFOLIO_GETRO_API_KEY') ?? null,
+    portfolioGetroNetworkIds,
+    portfolioGetroSourceCredentials,
     turnstileSecretKey: read('TURNSTILE_SECRET_KEY') ?? null,
     turnstileSiteKey: read('PUBLIC_TURNSTILE_SITE_KEY') ?? null,
     linkedinJsonLdEnabled: truthy(read('LINKEDIN_JSONLD_RETRIEVAL_ENABLED')),
@@ -136,6 +174,15 @@ export function isTelegramConfigured(env: AppEnv): boolean {
   return Boolean(env.telegramBotToken && env.telegramWebhookSecret && env.telegramAdminIds.length);
 }
 
+export function isPortfolioDiscoveryConfigured(env: AppEnv): boolean {
+  return Boolean(env.portfolioTelegramBotToken && env.portfolioTelegramChatId);
+}
+
+export function isPortfolioControlBotConfigured(env: AppEnv): boolean {
+  const chatId = Number(env.portfolioTelegramChatId);
+  return Boolean(env.portfolioTelegramBotToken && env.portfolioTelegramWebhookSecret && /^[A-Za-z0-9_-]{1,256}$/.test(env.portfolioTelegramWebhookSecret) && Number.isSafeInteger(chatId) && chatId !== 0);
+}
+
 /**
  * Direct LinkedIn retrieval is only permitted when both the adapter is switched
  * on AND authorisation has been recorded. Either flag missing keeps it off.
@@ -150,6 +197,8 @@ export function configurationReport(env: AppEnv) {
     auth: Boolean(env.supabaseUrl && (env.supabaseAnonKey || env.supabaseServiceRoleKey)),
     ai: isAiConfigured(env),
     telegram: isTelegramConfigured(env),
+    portfolioDiscovery: isPortfolioDiscoveryConfigured(env),
+    portfolioControlBot: isPortfolioControlBotConfigured(env),
     turnstile: Boolean(env.turnstileSecretKey && env.turnstileSiteKey),
     linkedinRetrieval: isLinkedInRetrievalEnabled(env) ? 'jsonld' : 'disabled',
     siteUrl: env.siteUrl,

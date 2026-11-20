@@ -3,7 +3,7 @@ import PublicLayout from '../../layouts/PublicLayout.astro';
 import Icon from '../../components/Icon.astro';
 import ApplyPanel from '../../components/ApplyPanel.astro';
 import ShareBar from '../../components/ShareBar.astro';
-import { isExpired, isPubliclyVisible, loadOpportunity } from '../../lib/page-data';
+import { isExpired, isPubliclyVisible, loadOpportunity, loadOpportunityByJobCode } from '../../lib/page-data';
 import { resolveApplicationRoutes } from '../../lib/domain/validation';
 import {
   APPLICATION_METHOD_LABELS,
@@ -17,20 +17,25 @@ import {
   truncate,
 } from '../../lib/domain/format';
 import { safeOutboundUrl } from '../../lib/domain/url';
+import { opportunityPublicId } from '../../lib/domain/url';
 
 const env = Astro.locals.env;
-const slug = Astro.params.slug ?? '';
-const { data: opportunity } = await loadOpportunity(env, slug);
+const identifier = Astro.params.slug ?? '';
+const isJobCode = /^HC-\d{6,}$/i.test(identifier);
+const { data: opportunity } = isJobCode
+  ? await loadOpportunityByJobCode(env, identifier)
+  : await loadOpportunity(env, identifier);
 
 if (!opportunity || !isPubliclyVisible(opportunity)) {
   return Astro.rewrite('/404');
 }
 
 const o = opportunity;
+if (o.job_code && identifier !== o.job_code) return Astro.redirect(`/opportunities/${o.job_code}`, 301);
 const closed = o.status !== 'published' || Boolean(o.closed_at) || isExpired(o);
 const routeResult = resolveApplicationRoutes(o);
 const routes = routeResult.routes;
-const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${o.slug}`;
+const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(o)}`;
 const companyWebsite = safeOutboundUrl(o.company?.website);
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
@@ -143,6 +148,7 @@ if (!closed) {
               <span class="chip">
                 <Icon name="clock" size={11} /> Discovered {relativeTime(o.discovered_at).toLowerCase()}
               </span>
+              {o.job_code && <span class="chip">Job ID {o.job_code}</span>}
               {o.is_featured && !closed && <span class="chip chip--brand">Featured</span>}
             </div>
 

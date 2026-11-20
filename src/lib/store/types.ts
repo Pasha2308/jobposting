@@ -60,6 +60,23 @@ export type CommentWithOpportunity = GeneratedComment & {
 };
 
 export type LocationCount = { city: string; country: string | null; count: number; slug: string };
+export type PortfolioDiscoveryState = {
+  source_id: string;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+};
+export type PortfolioSearchRun = {
+  id: string;
+  requested_by: number;
+  status: 'running' | 'completed' | 'partial' | 'failed';
+  full_backfill: boolean;
+  started_at: string;
+  finished_at: string | null;
+  report: Record<string, unknown>;
+};
+export type LinkedInDeliveryItem = { opportunity_id: string; batch_number: number };
+export type LinkedInDeliveryCounts = { queued: number; sending: number; sent: number; acknowledged: number; failed: number };
 
 /**
  * Persistence contract. Services depend on this interface, never on Supabase
@@ -88,6 +105,7 @@ export interface Store {
   listAdmin(filters: AdminOpportunityFilters): Promise<SearchResult>;
   getOpportunityById(id: string): Promise<OpportunityWithRelations | null>;
   getOpportunityBySlug(slug: string): Promise<OpportunityWithRelations | null>;
+  getOpportunityByJobCode(jobCode: string): Promise<OpportunityWithRelations | null>;
   createOpportunity(draft: OpportunityDraft): Promise<Opportunity>;
   updateOpportunity(id: string, patch: Partial<Opportunity>): Promise<Opportunity>;
   deleteOpportunity(id: string): Promise<void>;
@@ -109,6 +127,26 @@ export interface Store {
   listLocations(): Promise<LocationCount[]>;
   listCountries(): Promise<{ country: string; count: number }[]>;
   needsVerification(days: number): Promise<OpportunityWithRelations[]>;
+  getPortfolioDiscoveryState(sourceId: string): Promise<PortfolioDiscoveryState | null>;
+  updatePortfolioDiscoveryState(state: PortfolioDiscoveryState): Promise<void>;
+  listUnnotifiedPortfolioOpportunities(limit?: number): Promise<OpportunityWithRelations[]>;
+  claimPortfolioNotification(opportunityId: string): Promise<boolean>;
+  claimTelegramUpdate(updateId: number, telegramUserId?: number | null, updateType?: string | null, botKey?: 'capture' | 'portfolio'): Promise<boolean>;
+  getPortfolioAdminChat(telegramUserId: number): Promise<number | null>;
+  setPortfolioAdminChat(telegramUserId: number, chatId: number): Promise<void>;
+  isPortfolioChatVerified(chatId: number): Promise<boolean>;
+  startPortfolioSearch(requestedBy: number, fullBackfill: boolean): Promise<string | null>;
+  finishPortfolioSearch(id: string, status: 'completed' | 'partial' | 'failed', report: Record<string, unknown>): Promise<void>;
+  updatePortfolioSearchProgress(id: string, report: Record<string, unknown>): Promise<void>;
+  latestPortfolioSearch(): Promise<PortfolioSearchRun | null>;
+  enqueueLinkedInPost(opportunityId: string): Promise<boolean>;
+  claimNextLinkedInDeliveryBatch(limit?: number): Promise<LinkedInDeliveryItem[]>;
+  setLinkedInDeliveryState(opportunityId: string, state: 'sent' | 'failed', details?: { telegramMessageId?: number; error?: string; retryable?: boolean }): Promise<void>;
+  prepareLinkedInDeliveryRetry(batchNumber: number): Promise<void>;
+  acknowledgeLinkedInDeliveryBatch(batchNumber: number): Promise<boolean>;
+  currentLinkedInDeliveryBatch(): Promise<number | null>;
+  linkedinDeliveryCounts(): Promise<LinkedInDeliveryCounts>;
+  countPublishedWithoutLinkedInDraft(): Promise<number>;
 
   /* captures */
   createCapture(input: {
@@ -191,7 +229,6 @@ export interface Store {
   getProfile(userId: string): Promise<AdminProfile | null>;
   logActivity(log: { actor: string; action: string; entity_type: string; entity_id?: string | null; metadata?: Record<string, unknown> | null }): Promise<void>;
   listActivity(limit?: number): Promise<ActivityLog[]>;
-  claimTelegramUpdate(updateId: number, telegramUserId?: number | null, updateType?: string | null): Promise<boolean>;
   getSettings(): Promise<AppSettings>;
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
 
@@ -204,6 +241,7 @@ export interface Store {
     source_url?: string | null;
     sync_status?: CompanySource['sync_status'];
   }): Promise<CompanySource>;
+  recordCompanySourceSync(id: string, status: 'ok' | 'error', error?: string | null): Promise<void>;
 }
 
 export type { VerificationStatus, OpportunityStatus };

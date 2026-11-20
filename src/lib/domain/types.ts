@@ -151,6 +151,14 @@ export type CategoryWithCount = Category & { opportunity_count: number };
 
 export type Opportunity = {
   id: string;
+  /** Stable short public identifier assigned by the database on insert. */
+  job_code?: string;
+  /** Factual LinkedIn post draft generated from source fields; never auto-posted. */
+  linkedin_post_draft?: string | null;
+  is_portfolio_discovered?: boolean;
+  portfolio_notified_at?: string | null;
+  portfolio_notification_error?: string | null;
+  portfolio_notification_claimed_at?: string | null;
   slug: string;
   title: string;
   company_id: string | null;

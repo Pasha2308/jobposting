@@ -124,7 +124,7 @@ const reviewed = home.totalPublished > 0;
         {signalItems.length ? (
           <div class="signal__list">
             {signalItems.map((o, index) => (
-              <a class="signal__item" href={`/opportunities/${o.slug}`}>
+              <a class="signal__item" href={`/opportunities/${o.job_code ?? o.slug}`}>
                 <div>
                   <div class="signal__title">{o.title}</div>
                   <div class="signal__meta">
@@ -260,7 +260,7 @@ const reviewed = home.totalPublished > 0;
               </div>
               <div class="panel__body panel__body--flush">
                 {home.remote.slice(0, 4).map((o) => (
-                  <a class="signal__item" href={`/opportunities/${o.slug}`} style="border-bottom:1px solid var(--line)">
+                  <a class="signal__item" href={`/opportunities/${o.job_code ?? o.slug}`} style="border-bottom:1px solid var(--line)">
                     <div>
                       <div class="signal__title">{o.title}</div>
                       <div class="signal__meta">
@@ -282,7 +282,7 @@ const reviewed = home.totalPublished > 0;
               </div>
               <div class="panel__body panel__body--flush">
                 {home.internships.slice(0, 4).map((o) => (
-                  <a class="signal__item" href={`/opportunities/${o.slug}`} style="border-bottom:1px solid var(--line)">
+                  <a class="signal__item" href={`/opportunities/${o.job_code ?? o.slug}`} style="border-bottom:1px solid var(--line)">
                     <div>
                       <div class="signal__title">{o.title}</div>
                       <div class="signal__meta">

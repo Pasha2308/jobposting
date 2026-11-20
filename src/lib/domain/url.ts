@@ -162,6 +162,11 @@ export function slugify(input: string): string {
     .slice(0, 70);
 }
 
+/** Canonical public opportunity path segment, with a legacy-slug fallback. */
+export function opportunityPublicId(opportunity: { job_code?: string | null; slug: string }): string {
+  return opportunity.job_code || opportunity.slug;
+}
+
 export function buildOpportunitySlug(title: string, company: string, discriminator?: string): string {
   const base = slugify(`${title}-${company}`) || 'opportunity';
   const suffix = (discriminator || '').replace(/[^a-z0-9]/gi, '').slice(0, 6).toLowerCase();

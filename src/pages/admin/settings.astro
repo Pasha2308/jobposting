@@ -35,6 +35,12 @@ const integrations = [
     detail: 'Official Bot API webhook. Only allowlisted Telegram user IDs are accepted.',
   },
   {
+    name: 'Portfolio discovery and LinkedIn control bot',
+    ok: config.portfolioControlBot,
+    env: 'PORTFOLIO_TELEGRAM_BOT_TOKEN · PORTFOLIO_TELEGRAM_CHAT_ID · PORTFOLIO_TELEGRAM_WEBHOOK_SECRET',
+    detail: 'Separate bot for manual discovery and published-job drafts. The LinkedIn capture bot stays separate.',
+  },
+  {
     name: 'Cloudflare Turnstile',
     ok: config.turnstile,
     env: 'PUBLIC_TURNSTILE_SITE_KEY · TURNSTILE_SECRET_KEY',
@@ -48,6 +54,7 @@ const setupChecks = [
   { label: 'Supabase Auth configured', done: config.auth },
   { label: 'AI extraction key present', done: config.ai },
   { label: 'Telegram webhook configured', done: config.telegram },
+  { label: 'Portfolio control bot configured', done: config.portfolioControlBot },
   { label: 'Turnstile configured (optional)', done: config.turnstile },
 ];
 ---
@@ -262,6 +269,29 @@ const setupChecks = [
       )}
     </div>
   </div>
+
+  <div class="panel" style="margin-top:1.5rem">
+    <div class="panel__head">
+      <span class="panel__title"><Icon name="telegram" size={14} /> Portfolio control bot webhook</span>
+      <span class:list={['badge', config.portfolioControlBot ? 'badge--approved' : 'badge--draft']}>
+        {config.portfolioControlBot ? 'Ready' : 'Not configured'}
+      </span>
+    </div>
+    <div class="panel__body">
+      <p class="small muted" style="line-height:1.6">This is a separate bot. It does not replace or change the LinkedIn intake webhook.</p>
+      <div class="meta-list" style="margin-top:0.85rem">
+        <div class="meta-list__row"><span class="meta-list__key">Webhook URL</span><span class="meta-list__val mono tiny">{config.siteUrl.replace(/\/+$/, '')}/api/telegram/portfolio-webhook</span></div>
+        <div class="meta-list__row"><span class="meta-list__key">Allowed updates</span><span class="meta-list__val mono tiny">message, callback_query</span></div>
+      </div>
+      <div class="cluster" style="margin-top:1rem">
+        <button class="btn btn--primary btn--sm" type="button" data-portfolio-telegram-register disabled={!config.portfolioControlBot}><Icon name="telegram" size={13} /> Register portfolio webhook</button>
+        <button class="btn btn--outline btn--sm" type="button" data-portfolio-telegram-info disabled={!config.portfolioControlBot}><Icon name="refresh" size={13} /> Check status</button>
+      </div>
+      <pre class="code-block tiny" data-portfolio-telegram-output hidden style="margin-top:0.85rem;white-space:pre-wrap"></pre>
+      <div class="alert alert--error" data-portfolio-telegram-error role="alert" hidden style="margin-top:0.85rem"></div>
+      {!config.portfolioControlBot && <div class="alert alert--warning" role="status" style="margin-top:0.85rem">Set <code>PORTFOLIO_TELEGRAM_BOT_TOKEN</code>, <code>PORTFOLIO_TELEGRAM_CHAT_ID</code> and <code>PORTFOLIO_TELEGRAM_WEBHOOK_SECRET</code> before registering.</div>}
+    </div>
+  </div>
 </AdminLayout>
 
 <script>
@@ -350,6 +380,30 @@ const setupChecks = [
     if (window.confirm('Register the Telegram webhook for this site URL?')) void telegram('POST');
   });
   document.querySelector('[data-telegram-info]')?.addEventListener('click', () => void telegram('GET'));
+
+  const portfolioOutput = document.querySelector<HTMLElement>('[data-portfolio-telegram-output]');
+  const portfolioError = document.querySelector<HTMLElement>('[data-portfolio-telegram-error]');
+  async function portfolioTelegram(method: 'GET' | 'POST') {
+    if (portfolioOutput) { portfolioOutput.hidden = false; portfolioOutput.textContent = method === 'POST' ? 'Registering portfolio webhook…' : 'Fetching portfolio webhook info…'; }
+    if (portfolioError) portfolioError.hidden = true;
+    try {
+      const response = await fetch('/api/admin/telegram/portfolio-webhook', { method });
+      const result = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (!response.ok) {
+        if (portfolioError) { portfolioError.hidden = false; portfolioError.textContent = String(result?.error ?? 'Telegram request failed.'); }
+        if (portfolioOutput) portfolioOutput.hidden = true;
+        return;
+      }
+      if (portfolioOutput) portfolioOutput.textContent = JSON.stringify(result, null, 2);
+    } catch {
+      if (portfolioOutput) portfolioOutput.hidden = true;
+      if (portfolioError) { portfolioError.hidden = false; portfolioError.textContent = 'Network error. The webhook was not changed.'; }
+    }
+  }
+  document.querySelector('[data-portfolio-telegram-register]')?.addEventListener('click', () => {
+    if (window.confirm('Register the separate portfolio control bot webhook?')) void portfolioTelegram('POST');
+  });
+  document.querySelector('[data-portfolio-telegram-info]')?.addEventListener('click', () => void portfolioTelegram('GET'));
 
   const purgeButton = document.querySelector<HTMLButtonElement>('[data-purge-captures]');
   const purgeStatus = document.querySelector<HTMLElement>('[data-purge-status]');

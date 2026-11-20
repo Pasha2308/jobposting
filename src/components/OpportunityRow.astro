@@ -10,7 +10,7 @@ interface Props {
 const { opportunity: o } = Astro.props;
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
-const href = `/opportunities/${o.slug}`;
+const href = `/opportunities/${o.job_code ?? o.slug}`;
 ---
 
 <article class="opp-row">

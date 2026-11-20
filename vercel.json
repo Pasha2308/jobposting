@@ -1,4 +1,15 @@
 {
+  "functions": {
+    "src/pages/api/telegram/portfolio-webhook.ts": {
+      "maxDuration": 60
+    },
+    "src/pages/api/admin/opportunities/**/*.ts": {
+      "maxDuration": 60
+    },
+    "src/pages/api/cron/retry-retrievals.ts": {
+      "maxDuration": 60
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",

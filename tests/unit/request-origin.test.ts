@@ -69,6 +69,9 @@ describe('Astro proxy and CSRF configuration', () => {
       if (route === 'telegram/webhook.ts') {
         expect(source).toContain('x-telegram-bot-api-secret-token');
         expect(source).toContain('safeEqual(secret, env.telegramWebhookSecret)');
+      } else if (route === 'telegram/portfolio-webhook.ts') {
+        expect(source).toContain('x-telegram-bot-api-secret-token');
+        expect(source).toContain('safeEqual(suppliedSecret, env.portfolioTelegramWebhookSecret)');
       } else if (route === 'cron/retry-retrievals.ts') {
         expect(source).toContain("header === `Bearer ${secret}`");
         expect(source).toContain('if (!authorised(request, env.cronSecret))');
@@ -76,6 +79,16 @@ describe('Astro proxy and CSRF configuration', () => {
         expect(source, route).toContain('assertSameOrigin(');
       }
     }
+  });
+
+  it('allows enough Vercel function time for a paced delivery batch without changing the intake webhook', () => {
+    const vercel = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8')) as {
+      functions?: Record<string, { maxDuration?: number }>;
+    };
+    expect(vercel.functions?.['src/pages/api/telegram/portfolio-webhook.ts']?.maxDuration).toBe(60);
+    expect(vercel.functions?.['src/pages/api/admin/opportunities/**/*.ts']?.maxDuration).toBe(60);
+    expect(vercel.functions?.['src/pages/api/cron/retry-retrievals.ts']?.maxDuration).toBe(60);
+    expect(vercel.functions?.['src/pages/api/telegram/webhook.ts']).toBeUndefined();
   });
 });
 

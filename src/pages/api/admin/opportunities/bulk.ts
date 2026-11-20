@@ -4,6 +4,7 @@ import { requireStore } from '../../../../lib/services/context';
 import { ServiceError } from '../../../../lib/services/errors';
 import { apiError, assertSameOrigin, jsonResponse, readJson } from '../../../../lib/http';
 import type { LifecycleAction } from '../../../../lib/domain/lifecycle';
+import { dispatchPortfolioDelivery } from '../../../../lib/portfolio/linkedin-delivery';
 
 const ACTION_MAP: Record<string, LifecycleAction> = {
   publish: 'publish',
@@ -31,6 +32,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     const result = await bulkTransition(store, ids, action, `admin:${admin.email}`, context.locals.env.siteUrl);
+    if (action === 'publish') await dispatchPortfolioDelivery(context.locals.env, store);
     await store.logActivity({
       actor: `admin:${admin.email}`,
       action: `opportunities.bulk_${action}`,

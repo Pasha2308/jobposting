@@ -5,6 +5,7 @@ import { createRetrievalService } from '../../../lib/linkedin/jsonld';
 import { requireStore } from '../../../lib/services/context';
 import { nextScheduledRetrievalRetry, retryRetrieval, RETRIEVAL_MAX_ATTEMPTS } from '../../../lib/services/ingest-source';
 import { jsonResponse } from '../../../lib/http';
+import { dispatchPortfolioDelivery } from '../../../lib/portfolio/linkedin-delivery';
 
 /**
  * Recovery worker. Runs on the hosting plan's supported schedule (Vercel Hobby
@@ -89,6 +90,19 @@ async function run(request: Request, env: AppEnv) {
     }
   }
 
+  // Discovery is manually triggered from the portfolio control bot. This
+  // existing daily worker remains responsible for queued Telegram retries.
+  let linkedinDelivery = { sent: 0, failed: 0, batchNumber: null as number | null };
+  try {
+    linkedinDelivery = await dispatchPortfolioDelivery(env, store);
+    if (linkedinDelivery.sent || linkedinDelivery.failed) console.info('[cron/retry-retrievals] LinkedIn delivery retry', linkedinDelivery);
+  } catch (error) {
+    console.error('[cron/retry-retrievals] LinkedIn delivery retry failed', {
+      reason: error instanceof Error ? error.message.slice(0, 300) : 'Delivery worker failed unexpectedly.',
+    });
+    linkedinDelivery.failed += 1;
+  }
+
   return jsonResponse({
     ok: true,
     recovered,
@@ -97,6 +111,7 @@ async function run(request: Request, env: AppEnv) {
     retentionDays,
     purged,
     results,
+    linkedinDelivery,
   });
 }
 

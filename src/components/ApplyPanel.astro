@@ -3,6 +3,7 @@ import type { ApplicationRoute } from '../lib/domain/validation';
 import type { OpportunityWithRelations } from '../lib/domain/types';
 import { formatDate } from '../lib/domain/format';
 import Icon from './Icon.astro';
+import { opportunityPublicId } from '../lib/domain/url';
 
 interface Props {
   opportunity: OpportunityWithRelations;
@@ -12,7 +13,7 @@ interface Props {
 
 const { opportunity: o, routes, closed } = Astro.props;
 const companyName = o.company?.name ?? 'the team';
-const listingUrl = `${Astro.locals.env?.siteUrl ?? Astro.site ?? ''}/opportunities/${o.slug}`.replace(/([^:]\/)\/+/g, '$1');
+const listingUrl = `${Astro.locals.env?.siteUrl ?? Astro.site ?? ''}/opportunities/${opportunityPublicId(o)}`.replace(/([^:]\/)\/+/g, '$1');
 const subject = `Application: ${o.title}${o.company?.name ? ` at ${o.company.name}` : ''}`;
 const emailBody = [
   `Hi ${companyName},`,
@@ -73,7 +74,7 @@ const sourceHref = o.source_url;
           rel="noopener noreferrer nofollow"
           data-track-route={primary.trackingType}
         >
-          {primary.label} <Icon name="arrow-up-right" size={14} />
+          {o.is_portfolio_discovered ? 'Apply Now' : primary.label} <Icon name="arrow-up-right" size={14} />
         </a>
       )}
 

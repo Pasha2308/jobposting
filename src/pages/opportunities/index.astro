@@ -92,7 +92,7 @@ const structuredData = [
       itemListElement: search.items.map((o, index) => ({
         '@type': 'ListItem',
         position: index + 1,
-        url: `${env.siteUrl}/opportunities/${o.slug}`,
+        url: `${env.siteUrl}/opportunities/${o.job_code ?? o.slug}`,
         name: o.title,
       })),
     },
