@@ -1,0 +1,49 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { requireStore } from '../../lib/services/context';
+import { formatDate } from '../../lib/domain/format';
+
+const admin = Astro.locals.admin;
+if (!admin) return Astro.redirect('/admin/login');
+if (admin.role !== 'owner') return Astro.rewrite('/404');
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const leads = await requireStore(Astro.locals.env).listCandidateApplications(500);
+---
+
+<AdminLayout
+  title="Candidate emails"
+  description="Emails candidates chose to share before continuing to an employer application."
+  active="candidate-emails"
+>
+  <section class="panel">
+    <div class="panel__head">
+      <span class="panel__title">Consent-based candidate interest</span>
+      <span class="chip">{leads.length} recent</span>
+    </div>
+    <div class="panel__body">
+      <p class="muted">These addresses are not verified and are not sent to employers. Records are removed 180 days after the last application redirect.</p>
+      {leads.length ? (
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Email</th><th>Opportunity</th><th>Company</th><th>Consent received</th></tr></thead>
+            <tbody>
+              {leads.map((lead) => (
+                <tr>
+                  <td><a href={`mailto:${lead.email}`} style="text-decoration:underline">{lead.email}</a></td>
+                  <td>
+                    {lead.job_code ? <a href={`/opportunities/${lead.job_code}`} target="_blank" rel="noopener">{lead.title} · {lead.job_code}</a> : lead.title}
+                  </td>
+                  <td>{lead.company_name ?? 'Not specified'}</td>
+                  <td>{formatDate(lead.consented_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="empty-state"><strong>No candidate emails yet.</strong><p>Emails appear here only after a candidate enters an address and checks the consent box.</p></div>
+      )}
+    </div>
+  </section>
+</AdminLayout>

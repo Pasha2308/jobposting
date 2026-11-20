@@ -6,9 +6,7 @@ import ShareBar from '../../components/ShareBar.astro';
 import { isExpired, isPubliclyVisible, loadOpportunity, loadOpportunityByJobCode } from '../../lib/page-data';
 import { resolveApplicationRoutes } from '../../lib/domain/validation';
 import {
-  APPLICATION_METHOD_LABELS,
   EMPLOYMENT_TYPE_LABELS,
-  VERIFICATION_LABELS,
   WORK_MODE_LABELS,
   formatDate,
   formatExperience,
@@ -16,8 +14,8 @@ import {
   relativeTime,
   truncate,
 } from '../../lib/domain/format';
-import { safeOutboundUrl } from '../../lib/domain/url';
 import { opportunityPublicId } from '../../lib/domain/url';
+import { plainText } from '../../lib/domain/text';
 
 const env = Astro.locals.env;
 const identifier = Astro.params.slug ?? '';
@@ -37,13 +35,12 @@ const routeResult = resolveApplicationRoutes(o);
 const routes = routeResult.routes;
 const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(o)}`;
 const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-const companyWebsite = safeOutboundUrl(o.company?.website);
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
 const experience = formatExperience(o.experience_min_years, o.experience_max_years);
 const fresh = closed ? 'No longer active' : o.last_verified_at ? 'Source checked' : 'Awaiting verification';
 const description = o.summary
-  ? truncate(o.summary, 158)
+  ? truncate(plainText(o.summary), 158)
   : `${o.title} at ${o.company?.name ?? 'a startup'} — a curated startup opportunity with source and application details.`;
 
 const employmentMap: Record<string, string> = {
@@ -74,13 +71,12 @@ if (!closed) {
     '@context': 'https://schema.org',
     '@type': 'JobPosting',
     title: o.title,
-    description: [o.summary, ...o.responsibilities, ...o.requirements].filter(Boolean).join('\n\n'),
+    description: [o.summary, ...o.responsibilities, ...o.requirements].filter(Boolean).map((item) => plainText(item)).join('\n\n'),
     datePosted: o.original_posted_at ?? o.published_at,
     employmentType: employmentMap[o.employment_type] ?? 'OTHER',
     hiringOrganization: {
       '@type': 'Organization',
       name: o.company?.name ?? 'Company not specified',
-      ...(companyWebsite ? { sameAs: companyWebsite } : {}),
     },
     jobLocation: {
       '@type': 'Place',
@@ -157,16 +153,7 @@ if (!closed) {
 
             <div class="detail__company">
               <Icon name="building" size={16} />
-              {companyWebsite ? (
-                <a href={companyWebsite} target="_blank" rel="noopener noreferrer nofollow">{o.company?.name}</a>
-              ) : (
-                <span>{o.company?.name ?? 'Company not specified'}</span>
-              )}
-              {o.company?.verified ? (
-                <span class="chip chip--brand"><Icon name="shield" size={10} /> Verified company</span>
-              ) : (
-                <span class="chip chip--muted">Company not yet verified</span>
-              )}
+              <span>{o.company?.name ?? 'Company not specified'}</span>
             </div>
 
             <div class="detail__meta">
@@ -188,7 +175,7 @@ if (!closed) {
           )}
 
           <div class="detail__summary">
-            {o.summary ?? (
+            {o.summary ? plainText(o.summary) : (
               <span class="muted">
                 The original source did not include a summary. We do not write one from assumptions — check the source
                 post for the full description.
@@ -199,14 +186,14 @@ if (!closed) {
           {o.responsibilities.length > 0 && (
             <section class="detail__section">
               <h2>What you'll work on</h2>
-              <ul>{o.responsibilities.map((item) => <li>{item}</li>)}</ul>
+              <ul>{o.responsibilities.map((item) => <li>{plainText(item)}</li>)}</ul>
             </section>
           )}
 
           {o.requirements.length > 0 && (
             <section class="detail__section">
               <h2>What they're looking for</h2>
-              <ul>{o.requirements.map((item) => <li>{item}</li>)}</ul>
+              <ul>{o.requirements.map((item) => <li>{plainText(item)}</li>)}</ul>
             </section>
           )}
 
@@ -242,42 +229,14 @@ if (!closed) {
           <section class="detail__section">
             <h2>Source & verification</h2>
             <div class="stack">
-              <div class="trust-note">
-                <Icon name="shield" size={16} />
-                <div>
-                  <strong style="color:var(--text)">How this listing was built.</strong>
-                  Role details, salary, location and dates are transcribed or summarised from the original source.
-                  The category, company link, verification status and application route are checked by an editor.
-                  Anything the source did not state is shown as “Not specified” — never guessed.
-                </div>
-              </div>
-
               <div class="meta-list">
                 <div class="meta-list__row">
-                  <span class="meta-list__key">Source type</span>
-                  <span class="meta-list__val">
-                    {o.source_type ? o.source_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Not specified'}
-                  </span>
-                </div>
-                <div class="meta-list__row">
-                  <span class="meta-list__key">Original post</span>
-                  <span class="meta-list__val">
-                    {o.source_url ? (
-                      <a href={o.source_url} target="_blank" rel="noopener noreferrer nofollow" style="text-decoration:underline">
-                        Open source <Icon name="arrow-up-right" size={11} />
-                      </a>
-                    ) : (
-                      'Not specified'
-                    )}
-                  </span>
+                  <span class="meta-list__key">Source company</span>
+                  <span class="meta-list__val">{o.company?.name ?? 'Not specified'}</span>
                 </div>
                 <div class="meta-list__row">
                   <span class="meta-list__key">Verification</span>
-                  <span class="meta-list__val">{VERIFICATION_LABELS[o.verification_status]}</span>
-                </div>
-                <div class="meta-list__row">
-                  <span class="meta-list__key">Last checked</span>
-                  <span class="meta-list__val">{o.last_verified_at ? formatDate(o.last_verified_at) : 'Not yet checked'}</span>
+                  <span class="meta-list__val">{fresh}</span>
                 </div>
               </div>
 
@@ -291,7 +250,7 @@ if (!closed) {
         </article>
 
         <aside class="detail__apply">
-          <ApplyPanel opportunity={o} routes={routes} closed={closed} />
+          <ApplyPanel opportunity={o} routes={routes} closed={closed} applyPath={`/apply/${opportunityPublicId(o)}`} />
 
           <div class="meta-list">
             <div class="meta-list__row"><span class="meta-list__key">Salary</span><span class="meta-list__val">{salary}</span></div>
@@ -309,10 +268,9 @@ if (!closed) {
               </span>
             </div>
             <div class="meta-list__row"><span class="meta-list__key">Discovered</span><span class="meta-list__val">{formatDate(o.discovered_at)}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Listing freshness</span><span class="meta-list__val">Removed after 90 days · {formatDate(expiresAt)}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Listing duration</span><span class="meta-list__val">Removed after 90 days · {formatDate(expiresAt)}</span></div>
             <div class="meta-list__row"><span class="meta-list__key">Published</span><span class="meta-list__val">{o.published_at ? formatDate(o.published_at) : 'Not published'}</span></div>
             <div class="meta-list__row"><span class="meta-list__key">Deadline</span><span class="meta-list__val">{o.deadline ? formatDate(o.deadline) : 'Not specified'}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Application route</span><span class="meta-list__val">{APPLICATION_METHOD_LABELS[o.application_method]}</span></div>
           </div>
 
           <ShareBar url={publicUrl} title={`${o.title}${o.company?.name ? ` at ${o.company.name}` : ''}`} opportunityId={o.id} />
@@ -328,8 +286,8 @@ if (!closed) {
 
           {!closed && (
             <p class="tiny muted" style="line-height:1.6">
-              We track anonymous outbound clicks to understand which roles people find useful. We never record
-              applications, identities or contact details.
+              Before continuing to the employer, you can share your email with Hustler Community with your consent.
+              Your email is not sent to the employer.
             </p>
           )}
         </aside>

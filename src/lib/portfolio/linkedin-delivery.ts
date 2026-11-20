@@ -2,6 +2,7 @@ import type { AppEnv } from '../env';
 import type { Store } from '../store/types';
 import type { Messenger, TelegramButton } from '../telegram/client';
 import { TelegramClient, TelegramError } from '../telegram/client';
+import { plainText } from '../domain/text';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -62,7 +63,11 @@ export async function deliverNextLinkedInBatch(
         throw new Error('Published job or saved LinkedIn draft is unavailable.');
       }
       const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunity.job_code ?? opportunity.slug}`;
-      const text = `📌 ${opportunity.title} · ${opportunity.job_code ?? opportunity.slug}\n\n${opportunity.linkedin_post_draft}\n\nPublic job page: ${publicUrl}`;
+      const draft = plainText(opportunity.linkedin_post_draft, 2_800);
+      const copy = draft.includes(publicUrl)
+        ? draft
+        : `${draft}\n\nApply through Hustler Community: ${publicUrl}`;
+      const text = `📌 Ready-to-copy LinkedIn post · ${opportunity.job_code ?? opportunity.slug}\n\n${copy}`;
       const message = await sendWithRateLimitRetry(messenger, chatId, text);
       await store.setLinkedInDeliveryState(opportunity.id, 'sent', { telegramMessageId: message.message_id });
       sent += 1;

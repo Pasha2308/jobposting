@@ -294,7 +294,7 @@ export default function OpportunityEditor({ opportunity, categories, companies, 
               </div>
               <div className="field col-span-2">
                 <label htmlFor="summary">Factual summary</label>
-                <textarea className="textarea" id="summary" name="summary" rows={5} maxLength={1500} defaultValue={o?.summary ?? ''} placeholder="Summarise only what the source states. Minimum 30 characters to publish." />
+                <textarea className="textarea" id="summary" name="summary" rows={8} maxLength={12000} defaultValue={o?.summary ?? ''} placeholder="Paste or summarise the complete source details without adding assumptions." />
                 <p className="field__hint">Do not add benefits, salary or requirements the source did not state.</p>
               </div>
             </div>

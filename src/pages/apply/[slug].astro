@@ -1,0 +1,67 @@
+---
+import PublicLayout from '../../layouts/PublicLayout.astro';
+import Icon from '../../components/Icon.astro';
+import { isExpired, isPubliclyVisible, loadOpportunityByJobCode } from '../../lib/page-data';
+import { resolveCandidateRedirectRoute } from '../../lib/domain/validation';
+import { opportunityPublicId } from '../../lib/domain/url';
+
+const env = Astro.locals.env;
+const identifier = Astro.params.slug ?? '';
+const { data: opportunity } = await loadOpportunityByJobCode(env, identifier);
+if (!opportunity || !isPubliclyVisible(opportunity) || opportunity.status !== 'published' || opportunity.closed_at || isExpired(opportunity)) {
+  return Astro.rewrite('/404');
+}
+
+const route = resolveCandidateRedirectRoute(opportunity);
+if (!route) return Astro.rewrite('/404');
+
+const id = opportunityPublicId(opportunity);
+const error = Astro.url.searchParams.get('error');
+const siteKey = env.turnstileSiteKey;
+---
+
+<PublicLayout
+  title={`Continue to ${opportunity.company?.name ?? 'the employer'} — Hustler Community`}
+  description="Share your email with Hustler Community to continue to the employer's application page."
+>
+  <div class="container" style="max-width:680px;padding-top:3rem;padding-bottom:4rem">
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="/opportunities">Opportunities</a><span class="sep">/</span>
+      <a href={`/opportunities/${id}`}>{opportunity.title}</a><span class="sep">/</span>
+      <span aria-current="page">Apply</span>
+    </nav>
+
+    <section class="panel" style="margin-top:1.5rem">
+      <div class="panel__head"><span class="eyebrow eyebrow--brand">Continue to apply</span></div>
+      <div class="panel__body">
+        <h1 style="margin-top:0">{opportunity.title}</h1>
+        <p class="muted" style="margin-top:-0.5rem">{opportunity.company?.name ?? 'Company not specified'} · {opportunity.location_text ?? 'Location not specified'}</p>
+        <p>Enter your email to continue to the employer's application page. Hustler Community records your email and this job selection with your consent. We do not send your email to the employer.</p>
+
+        {error && <div class="alert alert--warning" role="alert">{error}</div>}
+
+        <form method="post" action="/api/public/apply" class="form-grid" style="margin-top:1.5rem">
+          <input type="hidden" name="job_code" value={id} />
+          <div class="field" aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">
+            <label for="website">Leave this field empty</label>
+            <input id="website" name="website" tabindex="-1" autocomplete="off" />
+          </div>
+          <div class="field col-span-2">
+            <label for="email">Email address</label>
+            <input class="input" id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
+          </div>
+          <label class="field col-span-2" style="display:flex;gap:.65rem;align-items:flex-start">
+            <input type="checkbox" name="consent" value="yes" required style="margin-top:.3rem" />
+            <span>I agree that Hustler Community may keep my email with this job selection to understand candidate interest. See the <a href="/privacy" style="text-decoration:underline">privacy policy</a>.</span>
+          </label>
+          {siteKey && <div class="cf-turnstile" data-sitekey={siteKey}></div>}
+          <div class="field col-span-2">
+            <button class="btn btn--primary" type="submit"><Icon name="arrow-up-right" size={14} /> Continue to {opportunity.company?.name ?? 'employer'}</button>
+            <a class="btn btn--ghost" href={`/opportunities/${id}`}>Back to job details</a>
+          </div>
+        </form>
+        {siteKey && <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>}
+      </div>
+    </section>
+  </div>
+</PublicLayout>

@@ -26,6 +26,8 @@ import { checkDuplicates } from '../domain/duplicates';
 import { slugify } from '../domain/url';
 import type {
   AdminOpportunityFilters,
+  CandidateApplicationInput,
+  CandidateApplicationLead,
   CaptureFilters,
   CommentSetInput,
   CommentWithOpportunity,
@@ -65,6 +67,7 @@ export class MemoryStore implements Store {
   private portfolioSearchRuns: PortfolioSearchRun[] = [];
   private linkedinQueue = new Map<string, { status: 'queued' | 'sending' | 'sent' | 'acknowledged' | 'failed'; batch_number: number | null; telegram_message_id: number | null; attempts: number; last_error: string | null; retryable: boolean; created_at: string }>();
   private nextLinkedInBatch = 1;
+  candidateApplications: CandidateApplicationLead[] = [];
 
   /* categories */
   async listCategories(opts: { activeOnly?: boolean } = {}): Promise<Category[]> {
@@ -956,6 +959,39 @@ export class MemoryStore implements Store {
   }
   async countPublishedWithoutLinkedInDraft(): Promise<number> {
     return this.opportunities.filter((item) => item.status === 'published' && Boolean(item.published_at) && !item.linkedin_post_draft).length;
+  }
+
+  async recordCandidateApplication(input: CandidateApplicationInput): Promise<void> {
+    const existing = this.candidateApplications.find((item) => item.opportunity_id === input.opportunity_id && item.email.toLowerCase() === input.email_normalized);
+    if (existing) {
+      existing.last_redirected_at = now();
+      return;
+    }
+    const opportunity = this.opportunities.find((item) => item.id === input.opportunity_id);
+    if (!opportunity) throw new Error('Opportunity not found');
+    const company = this.companies.find((item) => item.id === opportunity.company_id);
+    this.candidateApplications.unshift({
+      id: id(),
+      opportunity_id: input.opportunity_id,
+      email: input.email,
+      consented_at: input.consented_at,
+      created_at: now(),
+      last_redirected_at: now(),
+      job_code: opportunity.job_code ?? null,
+      title: opportunity.title,
+      company_name: company?.name ?? null,
+    });
+  }
+
+  async listCandidateApplications(limit = 500): Promise<CandidateApplicationLead[]> {
+    return this.candidateApplications.slice(0, Math.max(1, Math.min(1000, limit)));
+  }
+
+  async purgeStaleCandidateApplications(): Promise<number> {
+    const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    const before = this.candidateApplications.length;
+    this.candidateApplications = this.candidateApplications.filter((item) => Date.parse(item.last_redirected_at) >= cutoff);
+    return before - this.candidateApplications.length;
   }
 
   async getSettings(): Promise<AppSettings> {

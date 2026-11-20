@@ -24,9 +24,12 @@ import type {
 import { DEFAULT_SETTINGS } from '../domain/types';
 import type { DuplicateCandidate } from '../domain/duplicates';
 import { slugify } from '../domain/url';
+import { plainText } from '../domain/text';
 import type {
   AdminOpportunityFilters,
   CaptureFilters,
+  CandidateApplicationInput,
+  CandidateApplicationLead,
   CommentSetInput,
   CommentWithOpportunity,
   LocationCount,
@@ -67,13 +70,17 @@ function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((v) => String(v)).filter(Boolean) : [];
 }
 
+function plainTextArray(value: unknown): string[] {
+  return strArray(value).map((item) => plainText(item)).filter(Boolean);
+}
+
 export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRelations {
   const companyRaw = row.company as Record<string, unknown> | null | undefined;
   const categoryRaw = row.category as Record<string, unknown> | null | undefined;
   return {
     id: String(row.id),
     job_code: str(row.job_code) ?? undefined,
-    linkedin_post_draft: str(row.linkedin_post_draft),
+    linkedin_post_draft: row.linkedin_post_draft == null ? null : plainText(str(row.linkedin_post_draft), 3_600),
     is_portfolio_discovered: Boolean(row.is_portfolio_discovered),
     portfolio_notified_at: str(row.portfolio_notified_at),
     portfolio_notification_error: str(row.portfolio_notification_error),
@@ -82,9 +89,9 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     title: String(row.title),
     company_id: str(row.company_id),
     category_id: str(row.category_id),
-    summary: str(row.summary),
-    responsibilities: strArray(row.responsibilities),
-    requirements: strArray(row.requirements),
+    summary: row.summary == null ? null : plainText(str(row.summary)),
+    responsibilities: plainTextArray(row.responsibilities),
+    requirements: plainTextArray(row.requirements),
     skills: strArray(row.skills),
     preferred_skills: strArray(row.preferred_skills),
     education_requirements: strArray(row.education_requirements),
@@ -107,7 +114,7 @@ export function mapOpportunity(row: Record<string, unknown>): OpportunityWithRel
     application_url: str(row.application_url),
     recruitment_email: str(row.recruitment_email),
     careers_url: str(row.careers_url),
-    application_instructions: str(row.application_instructions),
+    application_instructions: row.application_instructions == null ? null : plainText(str(row.application_instructions)),
     source_url: str(row.source_url),
     source_type: (row.source_type as Opportunity['source_type']) ?? null,
     source_capture_id: str(row.source_capture_id),
@@ -1200,6 +1207,48 @@ export class SupabaseStore implements Store {
       .eq('status', 'published').not('published_at', 'is', null).is('linkedin_post_draft', null);
     if (error) fail(error, 'Could not count published jobs without LinkedIn drafts');
     return count ?? 0;
+  }
+
+  async recordCandidateApplication(input: CandidateApplicationInput): Promise<void> {
+    const { error } = await this.client.from('candidate_applications').upsert({
+      opportunity_id: input.opportunity_id,
+      email: input.email,
+      email_normalized: input.email_normalized,
+      consented_at: input.consented_at,
+      consent_text_version: input.consent_text_version,
+      last_redirected_at: new Date().toISOString(),
+    }, { onConflict: 'opportunity_id,email_normalized' });
+    if (error) fail(error, 'Could not record candidate application');
+  }
+
+  async listCandidateApplications(limit = 500): Promise<CandidateApplicationLead[]> {
+    const { data, error } = await this.client
+      .from('candidate_applications')
+      .select('id,opportunity_id,email,consented_at,created_at,last_redirected_at,opportunity:opportunities!inner(job_code,title,company:companies(name))')
+      .order('created_at', { ascending: false })
+      .limit(Math.min(1000, Math.max(1, limit)));
+    if (error) fail(error, 'Could not load candidate applications');
+    return (data ?? []).map((row: Record<string, unknown>) => {
+      const opportunity = row.opportunity as Record<string, unknown> | null;
+      const company = opportunity?.company as Record<string, unknown> | null;
+      return {
+        id: String(row.id),
+        opportunity_id: String(row.opportunity_id),
+        email: String(row.email),
+        consented_at: String(row.consented_at),
+        created_at: String(row.created_at),
+        last_redirected_at: String(row.last_redirected_at),
+        job_code: str(opportunity?.job_code),
+        title: String(opportunity?.title ?? 'Opportunity removed'),
+        company_name: str(company?.name),
+      };
+    });
+  }
+
+  async purgeStaleCandidateApplications(): Promise<number> {
+    const { data, error } = await this.client.rpc('purge_stale_candidate_applications');
+    if (error) fail(error, 'Could not purge stale candidate applications');
+    return Number(data ?? 0);
   }
 
   async getSettings(): Promise<AppSettings> {

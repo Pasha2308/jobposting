@@ -75,6 +75,26 @@ export type PortfolioSearchRun = {
   finished_at: string | null;
   report: Record<string, unknown>;
 };
+
+export type CandidateApplicationLead = {
+  id: string;
+  opportunity_id: string;
+  email: string;
+  consented_at: string;
+  created_at: string;
+  last_redirected_at: string;
+  job_code: string | null;
+  title: string;
+  company_name: string | null;
+};
+
+export type CandidateApplicationInput = {
+  opportunity_id: string;
+  email: string;
+  email_normalized: string;
+  consented_at: string;
+  consent_text_version: string;
+};
 export type LinkedInDeliveryItem = { opportunity_id: string; batch_number: number };
 export type LinkedInDeliveryCounts = { queued: number; sending: number; sent: number; acknowledged: number; failed: number };
 
@@ -147,6 +167,11 @@ export interface Store {
   currentLinkedInDeliveryBatch(): Promise<number | null>;
   linkedinDeliveryCounts(): Promise<LinkedInDeliveryCounts>;
   countPublishedWithoutLinkedInDraft(): Promise<number>;
+
+  /* candidate application email capture */
+  recordCandidateApplication(input: CandidateApplicationInput): Promise<void>;
+  listCandidateApplications(limit?: number): Promise<CandidateApplicationLead[]>;
+  purgeStaleCandidateApplications(): Promise<number>;
 
   /* captures */
   createCapture(input: {

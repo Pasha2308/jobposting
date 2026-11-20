@@ -232,6 +232,9 @@ describe('portfolio control bot', () => {
     });
     const processed = await processCapture(store, fakeAI(), submitted.capture.id, { actor: 'admin:test@example.com', siteUrl: env.siteUrl });
     const original = processed.opportunities[0]!;
+    await store.updateOpportunity(original.id, {
+      linkedin_post_draft: `&lt;p&gt;We're hiring: ${original.title} at Acme Labs&lt;/p&gt;\n\nReview the opportunity and apply through Hustler Community: ${env.siteUrl}/opportunities/${original.job_code}\n\n#Hiring #StartupJobs #Careers`,
+    });
     for (let index = 2; index <= 31; index += 1) {
       const { id: sourceId, job_code: sourceJobCode, created_at: sourceCreatedAt, updated_at: sourceUpdatedAt, ...copy } = original;
       void sourceId; void sourceJobCode; void sourceCreatedAt; void sourceUpdatedAt;
@@ -254,6 +257,11 @@ describe('portfolio control bot', () => {
     const messenger = new RecordingMessenger();
     const first = await deliverNextLinkedInBatch(env, store, messenger, -10012345, 0);
     expect(first.sent).toBe(30);
+    const firstPost = messenger.sent.find((item) => item.text.startsWith('📌 Ready-to-copy LinkedIn post'))?.text ?? '';
+    expect(firstPost).toContain(`We're hiring: ${original.title} at Acme Labs`);
+    expect(firstPost).toContain(`${env.siteUrl}/opportunities/${original.job_code}`);
+    expect(firstPost.split(`${env.siteUrl}/opportunities/${original.job_code}`).length - 1).toBe(1);
+    expect(firstPost).not.toMatch(/&lt;|<\/?p>/i);
     await expect(store.linkedinDeliveryCounts().then((counts) => counts.sent)).resolves.toBe(30);
 
     await handlePortfolioBotUpdate({ update_id: 3001, message: { message_id: 3001, from: { id: 111 }, chat: { id: -10012345, type: 'group' }, text: '/done' } }, { env, store, messenger });

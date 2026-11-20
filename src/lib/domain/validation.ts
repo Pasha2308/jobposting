@@ -516,6 +516,15 @@ export function resolveApplicationRoutes(o: RouteInput): ApplicationRouteResult 
   return { usable: uniqueRoutes.length > 0, routes: uniqueRoutes, blocking, warnings };
 }
 
+/** Prefer a real employer application destination; never route email capture to a source post. */
+export function resolveCandidateRedirectRoute(o: RouteInput): ApplicationRoute | null {
+  const routes = resolveApplicationRoutes(o).routes;
+  return routes.find((route) => route.method === 'external_url')
+    ?? routes.find((route) => route.method === 'careers_page')
+    ?? routes.find((route) => route.method === 'email')
+    ?? null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Opportunity validation                                                      */
 /* -------------------------------------------------------------------------- */
@@ -596,7 +605,7 @@ export const opportunityInputSchema = z.object({
   title: z.string().trim().min(3).max(160),
   company_id: z.string().uuid().nullable(),
   category_id: z.string().uuid().nullable(),
-  summary: nullableText(1500),
+  summary: nullableText(12_000),
   responsibilities: stringList(),
   requirements: stringList(),
   skills: stringList(30, 80),

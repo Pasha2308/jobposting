@@ -33,6 +33,8 @@ async function run(request: Request, env: AppEnv) {
   if (activatedSources) console.info('[cron/retry-retrievals] activated verified company source batch', { count: activatedSources });
   const expired = await store.expireStaleOpportunities();
   if (expired) console.info('[cron/retry-retrievals] expired public opportunities', { count: expired });
+  const purgedCandidateApplications = await store.purgeStaleCandidateApplications();
+  if (purgedCandidateApplications) console.info('[cron/retry-retrievals] removed stale candidate email records', { count: purgedCandidateApplications });
 
   // Queue errors must fail this invocation; pretending an empty queue could
   // silently strand submitted captures until somebody inspects the database.
@@ -110,6 +112,7 @@ async function run(request: Request, env: AppEnv) {
   return jsonResponse({
     ok: true,
     expired,
+    purgedCandidateApplications,
     activatedSources,
     recovered,
     recoveredExtractions,

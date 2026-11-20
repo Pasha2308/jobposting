@@ -1,7 +1,7 @@
 ---
 import PublicLayout from '../layouts/PublicLayout.astro';
 
-const updated = '13 November 2026';
+const updated = '20 November 2026';
 ---
 
 <PublicLayout
@@ -60,6 +60,14 @@ const updated = '13 November 2026';
         listing pages contain only the reviewed, structured fields.
       </p>
 
+      <h3>Continuing to an employer application</h3>
+      <p>
+        Before you continue to an employer's application page, you may choose to provide your email and must agree to
+        its collection. We store the email with the job you selected to understand candidate interest and improve the
+        directory. We do not send your email to the employer, use it to create an account, or send marketing email.
+        The email address is not verified. You can request deletion through the report form.
+      </p>
+
       <h3>Admin workspace</h3>
       <p>
         The admin workspace is restricted to allowlisted administrators. Sign-in uses Supabase Auth. Session tokens are
@@ -70,7 +78,7 @@ const updated = '13 November 2026';
       <h2>Third-party processors</h2>
       <ul>
         <li><strong>Supabase</strong> — database and authentication hosting.</li>
-        <li><strong>Cloudflare Pages</strong> — application hosting, plus optional Cloudflare Turnstile for bot protection on public forms.</li>
+        <li><strong>Vercel</strong> — application hosting. Cloudflare Turnstile may be used for bot protection on public forms.</li>
         <li><strong>Groq</strong> (default) or <strong>Google Gemini</strong> when configured - pasted or retrieved source text is sent server-side to extract structured fields. The integration is used for extraction only; the model does not publish anything.</li>
         <li><strong>Telegram</strong> — when the owner bot is configured, the owner can submit a source and receive a review preview. Telegram processes those messages under its own terms.</li>
       </ul>
@@ -85,14 +93,16 @@ const updated = '13 November 2026';
         captures are private and are retained for a configurable period (default 90 days) so that a listing can be
         audited or corrected; after that, raw text and comments are purged while the reviewed listing and its source
         reference remain. Reports are retained while needed to resolve the issue. Anonymous analytics events are
-        retained for aggregate reporting and are not tied to individuals.
+        retained for aggregate reporting and are not tied to individuals. Candidate email records are removed 180
+        days after the last redirect to the employer's application page.
       </p>
 
       <h2>Your choices</h2>
       <p>
-        You can browse without providing any personal data. If you sent a report with a contact email and want it
-        removed, contact us through the community site or the report form and describe the report. Because analytics are
-        anonymous, we cannot look up or delete an individual browsing history — we do not have one.
+        You can browse without providing any personal data. If you shared an email before continuing to an application
+        and want it removed, contact us through the report form and identify the job and email address. If you sent a
+        report with a contact email and want it removed, describe the report. Because analytics are anonymous, we
+        cannot look up or delete an individual browsing history — we do not have one.
       </p>
 
       <h2>Security</h2>

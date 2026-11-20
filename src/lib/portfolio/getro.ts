@@ -2,6 +2,7 @@ import type { AppEnv } from '../env';
 import type { CompanySource, OpportunityDraft, OpportunityWithRelations } from '../domain/types';
 import { normalizeSourceUrl, safeOutboundUrl, slugify } from '../domain/url';
 import { validateForPublication } from '../domain/validation';
+import { excerpt, plainText } from '../domain/text';
 import type { Store } from '../store/types';
 
 const TWO_DAYS = 48 * 60 * 60 * 1000;
@@ -71,20 +72,7 @@ type DiscoveryStats = {
 
 function cleanDescription(value: string | null | undefined): string | null {
   if (!value) return null;
-  return value
-    .replace(/<\/(p|li|div|h[1-6])\s*>/gi, '\n')
-    .replace(/<br\s*\/?\s*>/gi, '\n')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n\s+/g, '\n')
-    .trim()
-    .slice(0, 1200) || null;
+  return plainText(value) || null;
 }
 
 function sectionBullets(description: string | null, section: 'responsibilities' | 'requirements'): string[] {
@@ -149,7 +137,7 @@ async function fingerprint(value: string): Promise<string> {
 
 function draftPost(job: GetroJob, companyName: string | null, sourceName: string, publicUrl: string): string {
   const location = job.locations?.filter(Boolean).join(' · ');
-  const summary = cleanDescription(job.description);
+  const summary = excerpt(cleanDescription(job.description), 220);
   return [
     `🚀 ${job.title}${companyName ? ` at ${companyName}` : ''}`,
     location ? `📍 ${location}` : null,
