@@ -13,7 +13,7 @@ function configuredChat(env: AppEnv): number | null {
 }
 
 function isAdmin(env: AppEnv, userId: number | undefined): userId is number {
-  return typeof userId === 'number' && env.telegramAdminIds.includes(userId);
+  return typeof userId === 'number' && env.portfolioTelegramAdminIds.includes(userId);
 }
 
 function startKeyboard(): { inline_keyboard: TelegramButton[][] } {

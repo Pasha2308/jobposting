@@ -725,10 +725,12 @@ to LinkedIn. Admin job details also provide a Copy LinkedIn Post button. The
 manual LinkedIn capture bot keeps its separate token, webhook, and update IDs.
 
 Configure `PORTFOLIO_TELEGRAM_BOT_TOKEN`, numeric `PORTFOLIO_TELEGRAM_CHAT_ID`,
-and `PORTFOLIO_TELEGRAM_WEBHOOK_SECRET`, then apply migration
+`PORTFOLIO_TELEGRAM_WEBHOOK_SECRET`, and `PORTFOLIO_TELEGRAM_ADMIN_USER_IDS`, then apply migration
 `0008_portfolio_control_bot.sql`. In Admin → Settings, register the separate
 webhook at `/api/telegram/portfolio-webhook`. Send `/start` in that configured
-chat from an ID already listed in `TELEGRAM_ADMIN_USER_IDS`. The bot will not
+chat from an ID listed in `PORTFOLIO_TELEGRAM_ADMIN_USER_IDS`. If that separate
+allowlist is unset, it falls back to `TELEGRAM_ADMIN_USER_IDS`; this keeps the
+portfolio bot configurable without changing the intake bot's access. The bot will not
 search or send posts until the sender is allowlisted and the chat is verified.
 
 The Jump Capital first-party page publishes a public JSON feed, and A-Hub links

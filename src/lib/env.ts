@@ -22,6 +22,8 @@ export type AppEnv = {
   portfolioTelegramBotToken: string | null;
   portfolioTelegramChatId: string | null;
   portfolioTelegramWebhookSecret: string | null;
+  /** Isolated optional allowlist for the portfolio control bot. */
+  portfolioTelegramAdminIds: number[];
   /** Authorized Getro API access. Network IDs are configured as a JSON object. */
   portfolioGetroApiKey: string | null;
   portfolioGetroNetworkIds: Record<string, number>;
@@ -92,6 +94,10 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     .split(/[,\s]+/)
     .map((value) => Number(value.trim()))
     .filter((value) => Number.isInteger(value) && value > 0);
+  const portfolioAdminIds = (read('PORTFOLIO_TELEGRAM_ADMIN_USER_IDS') || '')
+    .split(/[ ,\s]+/)
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value) && value > 0);
 
   const aiProviderValue: 'none' | 'gemini' | 'groq' = (read('AI_PROVIDER') || 'groq').toLowerCase() as 'none' | 'gemini' | 'groq';
 
@@ -144,6 +150,7 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     portfolioTelegramBotToken: read('PORTFOLIO_TELEGRAM_BOT_TOKEN') ?? null,
     portfolioTelegramChatId: read('PORTFOLIO_TELEGRAM_CHAT_ID') ?? null,
     portfolioTelegramWebhookSecret: read('PORTFOLIO_TELEGRAM_WEBHOOK_SECRET') ?? null,
+    portfolioTelegramAdminIds: portfolioAdminIds.length ? portfolioAdminIds : adminIds,
     portfolioGetroApiKey: read('PORTFOLIO_GETRO_API_KEY') ?? null,
     portfolioGetroNetworkIds,
     portfolioGetroSourceCredentials,

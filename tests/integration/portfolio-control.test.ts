@@ -157,6 +157,19 @@ describe('portfolio control bot', () => {
     expect(messenger.sent[0].text).toContain('allowlisted admin accounts');
   });
 
+  it('uses an isolated portfolio allowlist without changing LinkedIn intake admins', async () => {
+    const store = new MemoryStore();
+    const messenger = new RecordingMessenger();
+    const env = testEnv({ telegramAdminIds: [111], portfolioTelegramAdminIds: [222], portfolioTelegramChatId: '-10012345' });
+    await handlePortfolioBotUpdate({
+      update_id: 1010,
+      message: { message_id: 10, from: { id: 222 }, chat: { id: -10012345, type: 'group' }, text: '/start' },
+    }, { env, store, messenger });
+    expect(await store.getPortfolioAdminChat(222)).toBe(-10012345);
+    expect(messenger.sent.at(-1)?.text).toContain('Portfolio control bot is ready');
+    expect(env.telegramAdminIds).toEqual([111]);
+  });
+
   it('sends 30 posts, waits for DONE, then sends the remaining post without duplicates', async () => {
     const { store } = await seedStore();
     const env = testEnv({ portfolioTelegramChatId: '-10012345', telegramAdminIds: [111] });

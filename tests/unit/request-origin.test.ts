@@ -81,14 +81,13 @@ describe('Astro proxy and CSRF configuration', () => {
     }
   });
 
-  it('allows enough Vercel function time for a paced delivery batch without changing the intake webhook', () => {
+  it('configures Astro Vercel function time for the portfolio bot and keeps the intake webhook separate', () => {
     const vercel = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8')) as {
       functions?: Record<string, { maxDuration?: number }>;
     };
-    expect(vercel.functions?.['src/pages/api/telegram/portfolio-webhook.ts']?.maxDuration).toBe(60);
-    expect(vercel.functions?.['src/pages/api/admin/opportunities/**/*.ts']?.maxDuration).toBe(60);
-    expect(vercel.functions?.['src/pages/api/cron/retry-retrievals.ts']?.maxDuration).toBe(60);
-    expect(vercel.functions?.['src/pages/api/telegram/webhook.ts']).toBeUndefined();
+    const astroConfigSource = readFileSync(join(process.cwd(), 'astro.config.mjs'), 'utf8');
+    expect(astroConfigSource).toContain('adapter: vercel({ maxDuration: 60 })');
+    expect(vercel.functions).toBeUndefined();
   });
 });
 

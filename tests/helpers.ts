@@ -22,6 +22,7 @@ export function testEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     portfolioTelegramBotToken: null,
     portfolioTelegramChatId: null,
     portfolioTelegramWebhookSecret: null,
+    portfolioTelegramAdminIds: overrides.portfolioTelegramAdminIds ?? overrides.telegramAdminIds ?? [111, 222],
     portfolioGetroApiKey: null,
     portfolioGetroNetworkIds: {},
     portfolioGetroSourceCredentials: {},
