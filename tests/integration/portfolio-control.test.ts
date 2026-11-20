@@ -40,7 +40,11 @@ describe('portfolio control bot', () => {
         return new Response(xml, { status: 200 });
       }
       if (url.startsWith('https://boards-api.greenhouse.io/v1/boards/northstar/jobs')) {
-        return responseJson({ jobs: [{ id: 101, title: 'Senior Data Engineer', absolute_url: 'https://boards.greenhouse.io/northstar/jobs/101', content: '<p>Build and maintain reliable data pipelines for the company analytics platform. Partner with product and engineering teams to improve data quality, documentation, and reporting for customers.</p>', location: { name: 'Remote, US' }, first_published: firstPublished, updated_at: new Date().toISOString() }] });
+        const description = '<p>Build and maintain reliable data pipelines for the company analytics platform. Partner with product and engineering teams to improve data quality, documentation, and reporting for customers.</p>';
+        return responseJson({ jobs: [
+          { id: 101, title: 'Senior Data Engineer', absolute_url: 'https://boards.greenhouse.io/northstar/jobs/101', content: description, location: { name: 'Remote, US' }, first_published: firstPublished, updated_at: new Date().toISOString() },
+          { id: 102, title: 'Older Product Analyst', absolute_url: 'https://boards.greenhouse.io/northstar/jobs/102', content: description, location: { name: 'Remote, US' }, first_published: new Date(Date.now() - 3 * 86_400_000).toISOString(), updated_at: new Date().toISOString() },
+        ] });
       }
       if (url.includes('/boards/staged/')) throw new Error('Inactive company source should not be queried.');
       throw new Error('Unexpected source URL: ' + url);
@@ -66,11 +70,12 @@ describe('portfolio control bot', () => {
     const run = await store.latestPortfolioSearch();
     expect(run?.status).toBe('completed');
     expect(run?.full_backfill).toBe(false);
-    expect(run?.report).toMatchObject({ scanned: 3, created: 3 });
+    expect(run?.report).toMatchObject({ scanned: 3, created: 3, readyForReview: 1, heldForInformation: 2 });
     expect((await store.listAdmin({ status: 'pending_review', page: 1, pageSize: 10 })).total).toBe(1);
     expect((await store.listAdmin({ status: 'draft', page: 1, pageSize: 10 })).total).toBe(2);
     expect(store.opportunities.find((job) => job.title === 'Software Engineer')?.quality_flags).toContain('needs_information');
     expect(store.opportunities.find((job) => job.title === 'Senior Data Engineer')?.original_posted_at).toBe(firstPublished.slice(0, 10));
+    expect(store.opportunities.some((job) => job.title === 'Older Product Analyst')).toBe(false);
     expect(messenger.sent.some((message) => message.text.includes('last successful source checkpoints'))).toBe(true);
     expect(messenger.sent.at(-1)?.text).toContain('Latest search: completed');
     expect(messenger.sent.at(-1)?.text).toContain('Pending admin review: 1');
@@ -110,7 +115,7 @@ describe('portfolio control bot', () => {
       message: { message_id: 4, from: { id: 111 }, chat: { id: -10012345, type: 'group' }, text: '/fetch' },
     }, { env, store, messenger, fetcher });
     expect((await store.latestPortfolioSearch())?.status).toBe('completed');
-    expect((await store.latestPortfolioSearch())?.report).toMatchObject({ scanned: 2, created: 0 });
+    expect((await store.latestPortfolioSearch())?.report).toMatchObject({ scanned: 2, created: 0, readyForReview: 0, heldForInformation: 0 });
   });
 
   it('queues a factual draft on publication and sends/acknowledges one batch once', async () => {

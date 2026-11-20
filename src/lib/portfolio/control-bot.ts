@@ -112,12 +112,22 @@ async function runFetch(userId: number, chatId: number, deps: BotDeps): Promise<
       },
     });
     const status = result.failures.length ? (result.scanned ? 'partial' : 'failed') : result.scanned ? 'completed' : 'failed';
-    const report = { scanned: result.scanned, created: result.created, duplicatesSkipped: result.duplicatesSkipped, scannedSources: result.scannedSources, failures: result.failures };
+    const report = {
+      scanned: result.scanned,
+      created: result.created,
+      readyForReview: result.readyForReview,
+      heldForInformation: result.heldForInformation,
+      duplicatesSkipped: result.duplicatesSkipped,
+      scannedSources: result.scannedSources,
+      failures: result.failures,
+    };
     await store.finishPortfolioSearch(runId, status, report);
     const lines = [
       `Search ${status}.`,
       `Sources successfully scanned: ${result.scanned}${result.scannedSources.length ? ` (${result.scannedSources.join(', ')})` : ''}`,
-      `New jobs sent to pending review: ${result.created}`,
+      `New jobs found: ${result.created}`,
+      `Ready for review: ${result.readyForReview}`,
+      result.heldForInformation ? `Held for missing or unverified details: ${result.heldForInformation}` : null,
       `Duplicates skipped: ${result.duplicatesSkipped}`,
       result.failures.length ? `Failed sources: ${result.failures.join('; ')}` : null,
       'Sources without owner-authorized or verified access were not searched.',
@@ -146,6 +156,8 @@ async function sendStatus(chatId: number, { store, messenger }: BotDeps): Promis
     run?.status === 'running' && report.currentSource ? `Currently scanning: ${String(report.currentSource)}` : null,
     `Search failures: ${failures || 'None'}`,
     `Jobs discovered: ${String(report.created ?? 0)}`,
+    `Ready for review: ${String(report.readyForReview ?? 0)}`,
+    `Held for information: ${String(report.heldForInformation ?? 0)}`,
     `Duplicates skipped: ${String(report.duplicatesSkipped ?? 0)}`,
     `Pending admin review: ${pending.total}`,
     `Published opportunities awaiting LinkedIn drafts: ${missingDrafts}`,

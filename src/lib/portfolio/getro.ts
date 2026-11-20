@@ -62,7 +62,12 @@ type GetroJob = {
 };
 
 type GetroPage = { items?: GetroJob[]; meta?: { total?: number } };
-type DiscoveryStats = { duplicatesSkipped: number; qualitySkipped: number };
+type DiscoveryStats = {
+  duplicatesSkipped: number;
+  qualitySkipped: number;
+  readyForReview: number;
+  heldForInformation: number;
+};
 
 function cleanDescription(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -308,7 +313,6 @@ async function createFromJob(
   if (!readiness.ok) {
     draft.quality_flags = [...draft.quality_flags, 'needs_information'];
     draft.admin_notes = `${draft.admin_notes} Blocked: ${readiness.blocking.join(' ')}`;
-    if (stats) stats.qualitySkipped += 1;
   }
 
   let created;
@@ -321,6 +325,13 @@ async function createFromJob(
       return null;
     }
     throw error;
+  }
+  if (stats) {
+    if (readiness.ok) stats.readyForReview += 1;
+    else {
+      stats.qualitySkipped += 1;
+      stats.heldForInformation += 1;
+    }
   }
   const jobCode = created.job_code;
   const publicUrl = `${siteUrl.replace(/\/+$/, '')}/opportunities/${jobCode ?? created.slug}`;
@@ -344,7 +355,9 @@ async function fetchCompanySource(
   fetcher: typeof fetch,
   fromMs: number,
   fullBackfill: boolean,
+  initialScan: boolean,
   stats: DiscoveryStats,
+  onProgress?: (report: Record<string, unknown>) => Promise<void> | void,
 ): Promise<{ created: number; seen: number }> {
   const company = await store.getCompanyById(companySource.company_id);
   if (!company) throw new Error('Configured ATS source has no company record.');
@@ -357,7 +370,15 @@ async function fetchCompanySource(
     if (!response.ok) throw new Error(`Greenhouse jobs API returned HTTP ${response.status}.`);
     const payload = await response.json() as { jobs?: Array<{ id?: number; title?: string; absolute_url?: string; content?: string; updated_at?: string; first_published?: string; location?: { name?: string } }> };
     if (!Array.isArray(payload.jobs)) throw new Error('Greenhouse returned an invalid job list.');
-    jobs = payload.jobs.filter((job) => fullBackfill || !job.updated_at || Date.parse(job.updated_at) >= fromMs).map((job) => ({ id: job.id, title: job.title, url: job.absolute_url, source_url: job.absolute_url, description: job.content, created_at: job.first_published ?? job.updated_at, locations: job.location?.name ? [job.location.name] : [], company: { name: company.name, website: company.website, careers_url: company.careers_url } }));
+    jobs = payload.jobs.filter((job) => {
+      if (fullBackfill) return true;
+      const lastChanged = job.updated_at ? Date.parse(job.updated_at) : Number.NaN;
+      if (initialScan) {
+        const firstPublished = job.first_published ? Date.parse(job.first_published) : Number.NaN;
+        return Number.isFinite(firstPublished) && firstPublished >= fromMs;
+      }
+      return !Number.isFinite(lastChanged) || lastChanged >= fromMs;
+    }).map((job) => ({ id: job.id, title: job.title, url: job.absolute_url, source_url: job.absolute_url, description: job.content, created_at: job.first_published ?? job.updated_at, locations: job.location?.name ? [job.location.name] : [], company: { name: company.name, website: company.website, careers_url: company.careers_url } }));
   } else if (companySource.provider === 'lever') {
     const response = await fetcher(`https://api.lever.co/v0/postings/${encodeURIComponent(companySource.board_identifier)}?mode=json`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
     if (!response.ok) throw new Error(`Lever public postings API returned HTTP ${response.status}.`);
@@ -374,7 +395,12 @@ async function fetchCompanySource(
     throw new Error('Custom ATS source has no approved adapter; it was not fetched.');
   }
   let created = 0;
-  for (const job of jobs) if (await createFromJob(store, source, job, env.siteUrl, undefined, stats)) created += 1;
+  for (let index = 0; index < jobs.length; index += 1) {
+    if (await createFromJob(store, source, jobs[index]!, env.siteUrl, undefined, stats)) created += 1;
+    if ((index + 1) % 10 === 0 || index === jobs.length - 1) {
+      await onProgress?.({ currentSource: source.boardUrl, jobsRead: index + 1, jobsReported: jobs.length, sourceCreated: created });
+    }
+  }
   return { created, seen: jobs.length };
 }
 
@@ -452,21 +478,21 @@ export async function discoverPortfolioJobs(
   env: AppEnv,
   store: Store,
   options: { now?: () => number; fetcher?: typeof fetch; manual?: boolean; fullBackfill?: boolean; onProgress?: (report: Record<string, unknown>) => Promise<void> | void } = {},
-): Promise<{ configured: boolean; scanned: number; created: number; notified: number; duplicatesSkipped: number; scannedSources: string[]; failures: string[] }> {
+): Promise<{ configured: boolean; scanned: number; created: number; readyForReview: number; heldForInformation: number; notified: number; duplicatesSkipped: number; scannedSources: string[]; failures: string[] }> {
   const now = options.now ?? Date.now;
   const fetcher = options.fetcher ?? fetch;
   const apiKey = env.portfolioGetroApiKey;
   const eligibleGetro = apiKey ? GETRO_SOURCES.filter((source) => env.portfolioGetroNetworkIds[source.id]) : [];
   const eligibleCandidates = GETRO_CANDIDATE_SOURCES.filter((source) => env.portfolioGetroSourceCredentials[source.id]);
   if (!env.portfolioTelegramBotToken || !env.portfolioTelegramChatId) {
-    return { configured: false, scanned: 0, created: 0, notified: 0, duplicatesSkipped: 0, scannedSources: [], failures: [] };
+    return { configured: false, scanned: 0, created: 0, readyForReview: 0, heldForInformation: 0, notified: 0, duplicatesSkipped: 0, scannedSources: [], failures: [] };
   }
 
   let scanned = 0;
   let created = 0;
   const failures: string[] = [];
   const scannedSources: string[] = [];
-  const stats: DiscoveryStats = { duplicatesSkipped: 0, qualitySkipped: 0 };
+  const stats: DiscoveryStats = { duplicatesSkipped: 0, qualitySkipped: 0, readyForReview: 0, heldForInformation: 0 };
   let lastRequestAt = 0;
   const sources = [...PUBLIC_SOURCES, ...eligibleGetro, ...eligibleCandidates];
   for (const source of sources) {
@@ -554,7 +580,17 @@ export async function discoverPortfolioJobs(
       try {
         await options.onProgress?.({ scanned, scannedSources: [...scannedSources], created, duplicatesSkipped: stats.duplicatesSkipped, failures: [...failures], currentSource: companySource.source_url ?? companySource.board_identifier });
         const fromMs = options.fullBackfill ? 0 : previous?.last_success_at ? Date.parse(previous.last_success_at) - 5 * 60_000 : now() - FIRST_SCAN_WINDOW;
-        const result = await fetchCompanySource(store, companySource, env, fetcher, fromMs, Boolean(options.fullBackfill), stats);
+        const result = await fetchCompanySource(
+          store,
+          companySource,
+          env,
+          fetcher,
+          fromMs,
+          Boolean(options.fullBackfill),
+          !previous?.last_success_at,
+          stats,
+          options.onProgress,
+        );
         created += result.created;
         scanned += 1;
         const company = await store.getCompanyById(companySource.company_id);
@@ -574,5 +610,15 @@ export async function discoverPortfolioJobs(
     failures.push(`Configured company sources: ${error instanceof Error ? error.message.slice(0, 200) : 'Could not load configured ATS sources.'}`);
   }
 
-  return { configured: true, scanned, created, notified: 0, duplicatesSkipped: stats.duplicatesSkipped, scannedSources, failures };
+  return {
+    configured: true,
+    scanned,
+    created,
+    readyForReview: stats.readyForReview,
+    heldForInformation: stats.heldForInformation,
+    notified: 0,
+    duplicatesSkipped: stats.duplicatesSkipped,
+    scannedSources,
+    failures,
+  };
 }
