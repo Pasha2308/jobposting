@@ -47,7 +47,9 @@ const ALLOWED_DOMAINS = [
 export default defineConfig({
   site: SITE_URL,
   output: 'server',
-  adapter: vercel({ maxDuration: 60 }),
+  // Portfolio FETCH scans several public ATS feeds in one background run.
+  // Keep enough time for the bounded, checkpointed scan to finish reliably.
+  adapter: vercel({ maxDuration: 300 }),
   integrations: [react()],
   // Keep Astro's built-in CSRF protection enabled. Exact host patterns let
   // Astro trust Vercel's forwarded host while validating its forwarded protocol.

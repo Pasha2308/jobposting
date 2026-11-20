@@ -86,7 +86,7 @@ describe('Astro proxy and CSRF configuration', () => {
       functions?: Record<string, { maxDuration?: number }>;
     };
     const astroConfigSource = readFileSync(join(process.cwd(), 'astro.config.mjs'), 'utf8');
-    expect(astroConfigSource).toContain('adapter: vercel({ maxDuration: 60 })');
+    expect(astroConfigSource).toContain('adapter: vercel({ maxDuration: 300 })');
     expect(vercel.functions).toBeUndefined();
   });
 });
