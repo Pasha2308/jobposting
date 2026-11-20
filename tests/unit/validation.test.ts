@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OpportunityDraft } from '../../src/lib/domain/types';
+import { checkEnglishJobContent } from '../../src/lib/domain/language';
 import {
   normalizeIsoDate,
   resolveApplicationRoutes,
@@ -287,6 +288,16 @@ describe('validateForPublication', () => {
     const result = validateForPublication(draft({ original_posted_at: future }), 'Acme Labs', 'Engineering');
     expect(result.ok).toBe(false);
     expect(result.blocking.join(' ')).toMatch(/future/i);
+  });
+
+  it('blocks non-English job descriptions while allowing English text', () => {
+    expect(checkEnglishJobContent(draft()).ok).toBe(true);
+    expect(checkEnglishJobContent(draft({
+      summary: 'Buscamos una persona con experiencia para liderar el equipo de producto. Trabajarás con los fundadores y ayudarás a nuestros clientes a crecer. El puesto es remoto y ofrece beneficios competitivos.',
+    })).ok).toBe(false);
+    expect(checkEnglishJobContent(draft({
+      summary: 'Nous recherchons une personne expérimentée pour diriger notre équipe produit. Vous travaillerez avec les fondateurs et aiderez nos clients à développer leurs activités. Le poste est à distance.',
+    })).ok).toBe(false);
   });
 
   it('warns rather than blocks when optional facts are absent', () => {

@@ -71,7 +71,15 @@ export function loadAdminOpportunities(
   env: AppEnv,
   filters: AdminOpportunityFilters,
 ): Promise<AdminLoad<SearchResult>> {
-  return load(env, (store) => store.listAdmin(filters), { ...EMPTY_SEARCH, page: filters.page ?? 1 });
+  return load(env, async (store) => {
+    const result = await store.listAdmin(filters);
+    const items = await Promise.all(result.items.map(async (item) => {
+      if (!item.source_capture_id) return { ...item, source_capture_text: null };
+      const capture = await store.getCapture(item.source_capture_id);
+      return { ...item, source_capture_text: capture?.raw_text ?? null };
+    }));
+    return { ...result, items } as SearchResult;
+  }, { ...EMPTY_SEARCH, page: filters.page ?? 1 });
 }
 
 export function loadCaptures(

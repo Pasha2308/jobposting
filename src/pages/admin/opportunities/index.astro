@@ -5,6 +5,7 @@ import { loadAdminCategories, loadAdminOpportunities } from '../../../lib/admin-
 import { OPPORTUNITY_STATUSES } from '../../../lib/domain/types';
 import type { OpportunityStatus } from '../../../lib/domain/types';
 import { STATUS_LABELS, formatDate, relativeTime } from '../../../lib/domain/format';
+import { checkEnglishJobContent } from '../../../lib/domain/language';
 
 const env = Astro.locals.env;
 const url = Astro.url;
@@ -26,6 +27,10 @@ const [result, categories] = await Promise.all([
 ]);
 
 const totalPages = Math.max(1, result.data.totalPages);
+const englishById = new Map(result.data.items.map((item) => {
+  const language = checkEnglishJobContent(item, (item as typeof item & { source_capture_text?: string | null }).source_capture_text);
+  return [item.id, { ok: language.ok, label: language.ok ? 'English' : 'Language review', reason: language.ok ? 'English content verified' : language.reason }] as const;
+}));
 const queryFor = (patch: Record<string, string | number | undefined>): string => {
   const params = new URLSearchParams();
   const base: Record<string, string> = {
@@ -118,15 +123,16 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
         <span class="tiny muted"><strong data-bulk-count>0</strong> selected</span>
         <select class="select" data-bulk-action style="max-width:210px;min-height:34px;font-size:var(--fs-xs)">
           <option value="">Bulk action…</option>
-          <option value="publish">Publish</option>
+          <option value="submit_for_review">Submit for review</option>
+          <option value="publish">Approve &amp; publish</option>
           <option value="close">Close</option>
           <option value="archive">Archive</option>
           <option value="reject">Reject</option>
           <option value="restore">Restore to draft</option>
         </select>
         <button class="btn btn--outline btn--sm" type="button" data-bulk-apply>Apply to selected</button>
-        <span class="tiny" data-bulk-status role="status" aria-live="polite"></span>
       </div>
+      <p class="tiny" data-bulk-status role="status" aria-live="polite" hidden></p>
     </div>
 
     {result.data.items.length ? (
@@ -140,14 +146,23 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
               <th>Category</th>
               <th>Location</th>
               <th>Timestamps</th>
-              <th>Verification</th>
+              <th>Language / verification</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {result.data.items.map((o) => (
               <tr>
-                <td><input type="checkbox" value={o.id} data-bulk-item aria-label={`Select ${o.title}`} /></td>
+                <td>
+                  <input
+                    type="checkbox"
+                    value={o.id}
+                    data-bulk-item
+                    aria-label={`Select ${o.title}`}
+                    disabled={!englishById.get(o.id)?.ok}
+                    title={englishById.get(o.id)?.reason}
+                  />
+                </td>
                 <td>
                   <div class="cell-title"><a href={`/admin/opportunities/${o.id}`}>{o.title}</a></div>
                   <div class="cell-sub">{o.company?.name ?? 'Company not set'} · {o.employment_type.replace(/_/g, ' ')}</div>
@@ -161,6 +176,9 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
                   <div>Closed {o.closed_at ? formatDate(o.closed_at) : '—'}</div>
                 </td>
                 <td>
+                  <span class:list={['badge', englishById.get(o.id)?.ok ? 'badge--published' : 'badge--rejected']}>
+                    {englishById.get(o.id)?.label}
+                  </span>
                   <span class:list={['badge', `badge--${o.verification_status}`]}>{o.verification_status.replace(/_/g, ' ')}</span>
                   <div class="cell-sub">{o.last_verified_at ? relativeTime(o.last_verified_at) : 'Never checked'}</div>
                 </td>
@@ -211,6 +229,14 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
   const actionSelect = document.querySelector<HTMLSelectElement>('[data-bulk-action]');
   const apply = document.querySelector<HTMLButtonElement>('[data-bulk-apply]');
   const bulkStatus = document.querySelector<HTMLElement>('[data-bulk-status]');
+  if (bulkStatus) {
+    const previous = sessionStorage.getItem('admin-bulk-result');
+    if (previous) {
+      bulkStatus.textContent = previous;
+      bulkStatus.hidden = false;
+      sessionStorage.removeItem('admin-bulk-result');
+    }
+  }
 
   function selectedIds(): string[] {
     return items.filter((item) => item.checked).map((item) => item.value);
@@ -219,11 +245,15 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
     const ids = selectedIds();
     if (bar) bar.hidden = ids.length === 0;
     if (count) count.textContent = String(ids.length);
-    if (selectAll) selectAll.checked = ids.length > 0 && ids.length === items.length;
+    const selectable = items.filter((item) => !item.disabled);
+    if (selectAll) {
+      selectAll.disabled = selectable.length === 0;
+      selectAll.checked = ids.length > 0 && ids.length === selectable.length;
+    }
   }
 
   selectAll?.addEventListener('change', () => {
-    for (const item of items) item.checked = selectAll.checked;
+    for (const item of items) if (!item.disabled) item.checked = selectAll.checked;
     sync();
   });
   for (const item of items) item.addEventListener('change', sync);
@@ -233,10 +263,13 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
     const ids = selectedIds();
     const action = actionSelect?.value ?? '';
     if (!ids.length || !action) {
-      if (bulkStatus) bulkStatus.textContent = 'Select at least one opportunity and an action.';
+      if (bulkStatus) {
+        bulkStatus.textContent = 'Select an action.';
+        bulkStatus.hidden = false;
+      }
       return;
     }
-    const destructive = ['archive', 'reject', 'publish'].includes(action);
+    const destructive = ['archive', 'reject', 'publish', 'close'].includes(action);
     if (destructive && !window.confirm(`Apply “${action}” to ${ids.length} opportunit${ids.length === 1 ? 'y' : 'ies'}? Status changes are logged.`)) return;
 
     apply.setAttribute('disabled', 'true');
@@ -245,22 +278,46 @@ const tabs: { value: OpportunityStatus | ''; label: string }[] = [
       const response = await fetch('/api/admin/opportunities/bulk', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ids, action }),
+        body: JSON.stringify({ ids, action, confirm: destructive }),
       });
       const result = (await response.json().catch(() => null)) as
-        | { ok?: boolean; updated?: number; failed?: { id: string; error: string }[]; error?: string }
+        | {
+            ok?: boolean;
+            succeeded?: string[];
+            failed?: { id: string; reason: string }[];
+            delivery?: { sent: number; failed: number; batchNumber: number | null } | null;
+            deliveryError?: string | null;
+            error?: string;
+          }
         | null;
       if (!response.ok || !result) {
-        if (bulkStatus) bulkStatus.textContent = (result as { error?: string } | null)?.error ?? 'Bulk action failed.';
+        if (bulkStatus) {
+          bulkStatus.textContent = (result as { error?: string } | null)?.error ?? 'Bulk action failed.';
+          bulkStatus.hidden = false;
+        }
         apply.removeAttribute('disabled');
         return;
       }
+      const succeeded = result.succeeded ?? [];
+      const failures = result.failed ?? [];
+      const itemName = (id: string) => items.find((item) => item.value === id)?.getAttribute('aria-label')?.replace(/^Select /, '') ?? id;
+      const failedDetails = failures.slice(0, 3).map((item) => `${itemName(item.id)}: ${item.reason}`).join(' | ');
+      const delivery = result.delivery
+        ? ` Telegram: ${result.delivery.sent} sent${result.delivery.failed ? `, ${result.delivery.failed} failed` : ''}${result.delivery.batchNumber ? ` (batch ${result.delivery.batchNumber})` : ''}.`
+        : '';
+      const deliveryIssue = result.deliveryError ? ` Telegram delivery issue: ${result.deliveryError}` : '';
+      const message = `${succeeded.length} succeeded, ${failures.length} failed.${failedDetails ? ` ${failedDetails}` : ''}${failures.length > 3 ? ` +${failures.length - 3} more.` : ''}${delivery}${deliveryIssue}`;
       if (bulkStatus) {
-        bulkStatus.textContent = `${result.updated ?? 0} updated${result.failed?.length ? `, ${result.failed.length} skipped` : ''}. Reloading…`;
+        bulkStatus.textContent = message;
+        bulkStatus.hidden = false;
       }
+      sessionStorage.setItem('admin-bulk-result', message);
       window.location.reload();
     } catch {
-      if (bulkStatus) bulkStatus.textContent = 'Network error. Nothing was changed.';
+      if (bulkStatus) {
+        bulkStatus.textContent = 'Network error. Check the connection before trying again.';
+        bulkStatus.hidden = false;
+      }
       apply.removeAttribute('disabled');
     }
   });

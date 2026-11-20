@@ -6,6 +6,7 @@ import { refreshComments } from './comments';
 import { ServiceError } from './errors';
 import { opportunityPublicId } from '../domain/url';
 import { buildLinkedInDraft } from '../portfolio/linkedin-draft';
+import { checkEnglishJobContent } from '../domain/language';
 
 export { ServiceError };
 
@@ -29,12 +30,26 @@ export async function publishOpportunity(
 ): Promise<PublishResult> {
   const opportunity = await store.getOpportunityById(opportunityId);
   if (!opportunity) throw new ServiceError('not_found', 'Opportunity not found.', 404);
+  const sourceCapture = opportunity.source_capture_id ? await store.getCapture(opportunity.source_capture_id) : null;
+  const language = checkEnglishJobContent(opportunity, sourceCapture?.raw_text);
 
   if (opportunity.status === 'published' && opportunity.published_at && !opportunity.closed_at) {
-    return {
+    if (!language.ok) throw new ServiceError('not_publishable', language.reason, 422, { blocking: [language.reason] });
+    // Recover safely from an earlier partial publish (for example, the status
+    // update succeeded but queue insertion failed). Preserve a human-edited
+    // draft; only generate one when it is missing, and enqueue idempotently.
+    const postDraft = opportunity.linkedin_post_draft || buildLinkedInDraft(
       opportunity,
+      `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}`,
+    );
+    const repaired = opportunity.linkedin_post_draft
+      ? opportunity
+      : await store.updateOpportunity(opportunity.id, { linkedin_post_draft: postDraft });
+    await store.enqueueLinkedInPost(opportunity.id);
+    return {
+      opportunity: { ...repaired, company: opportunity.company, category: opportunity.category } as OpportunityWithRelations,
       alreadyPublished: true,
-      warnings: ['This opportunity is already published.'],
+      warnings: ['This opportunity is already published; its LinkedIn draft and delivery queue were checked.'],
       listingUrl: `${siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(opportunity)}`,
     };
   }
@@ -46,6 +61,7 @@ export async function publishOpportunity(
     opportunity,
     opportunity.company?.name ?? null,
     opportunity.category?.name ?? null,
+    sourceCapture?.raw_text,
   );
   if (!validation.ok) {
     throw new ServiceError('not_publishable', 'This opportunity is missing information required for publication.', 422, {

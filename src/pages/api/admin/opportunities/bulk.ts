@@ -7,6 +7,7 @@ import type { LifecycleAction } from '../../../../lib/domain/lifecycle';
 import { dispatchPortfolioDelivery } from '../../../../lib/portfolio/linkedin-delivery';
 
 const ACTION_MAP: Record<string, LifecycleAction> = {
+  submit_for_review: 'submit_for_review',
   publish: 'publish',
   close: 'close',
   archive: 'archive',
@@ -32,14 +33,24 @@ export const POST: APIRoute = async (context) => {
     }
 
     const result = await bulkTransition(store, ids, action, `admin:${admin.email}`, context.locals.env.siteUrl);
-    if (action === 'publish') await dispatchPortfolioDelivery(context.locals.env, store);
+    let delivery = null;
+    let deliveryError: string | null = null;
+    if (action === 'publish' && result.succeeded.length) {
+      try {
+        delivery = await dispatchPortfolioDelivery(context.locals.env, store);
+      } catch (error) {
+        // Publishing and queue insertion already completed; report Telegram
+        // delivery separately so an admin can retry without republishing.
+        deliveryError = error instanceof Error ? error.message : 'Telegram delivery failed.';
+      }
+    }
     await store.logActivity({
       actor: `admin:${admin.email}`,
       action: `opportunities.bulk_${action}`,
       entity_type: 'opportunity',
       metadata: { succeeded: result.succeeded.length, failed: result.failed.length },
     });
-    return jsonResponse({ ok: true, ...result });
+    return jsonResponse({ ok: result.failed.length === 0, ...result, delivery, deliveryError });
   } catch (error) {
     return apiError(error);
   }

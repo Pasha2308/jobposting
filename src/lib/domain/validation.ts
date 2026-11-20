@@ -12,6 +12,7 @@ import {
 } from './types';
 import type { Opportunity, OpportunityDraft } from './types';
 import { isSafeEmail, isValidHttpUrl, linkedInPostUrl, normalizeEmail, safeOutboundUrl } from './url';
+import { checkEnglishJobContent } from './language';
 
 const nullableText = (max: number) =>
   z
@@ -534,9 +535,13 @@ export function validateForPublication(
   o: OpportunityDraft,
   companyName: string | null | undefined,
   categoryName: string | null | undefined,
+  sourceText?: string | null,
 ): OpportunityValidation {
   const blocking: string[] = [];
   const warnings: string[] = [];
+
+  const language = checkEnglishJobContent(o, sourceText);
+  if (!language.ok) blocking.push(language.reason);
 
   if (!o.title || o.title.trim().length < 3) blocking.push('A role title is required.');
   if (!companyName || companyName.trim().length < 2) blocking.push('A verified company is required.');

@@ -54,6 +54,30 @@ describe('publication', () => {
     expect(store.opportunities.filter((item) => item.id === opportunity.id)).toHaveLength(1);
   });
 
+  it('repairs a partial publish by restoring its draft and queue entry', async () => {
+    const { store, opportunity } = await createPending();
+    await store.updateOpportunity(opportunity.id, {
+      status: 'published',
+      published_at: new Date().toISOString(),
+      linkedin_post_draft: null,
+    });
+
+    const result = await publishOpportunity(store, opportunity.id, 'admin:test@example.com', SITE_URL);
+    expect(result.alreadyPublished).toBe(true);
+    expect(result.opportunity.linkedin_post_draft).toContain(opportunity.title);
+    expect(await store.linkedinDeliveryCounts()).toMatchObject({ queued: 1 });
+  });
+
+  it('blocks non-English listings from every publication path', async () => {
+    const { store, opportunity } = await createPending({
+      summary: 'Buscamos una persona con experiencia para liderar el equipo de producto. Trabajarás con los fundadores y ayudarás a nuestros clientes a crecer. El puesto es remoto y ofrece beneficios competitivos.',
+    });
+    await expect(
+      publishOpportunity(store, opportunity.id, 'admin:test@example.com', SITE_URL),
+    ).rejects.toMatchObject({ code: 'not_publishable', status: 422 });
+    expect((await store.getOpportunityById(opportunity.id))?.status).toBe('pending_review');
+  });
+
   it('blocks publication when no application route is usable', async () => {
     const { store, opportunity } = await createPending({
       application_method: 'none',

@@ -32,10 +32,16 @@ export const POST: APIRoute = async (context) => {
     if (!ACTIONS.includes(action)) throw new ServiceError('invalid_action', 'Unknown status action.', 400);
 
     const result = await transitionOpportunity(store, id, action, `admin:${admin.email}`, context.locals.env.siteUrl);
+    let delivery = null;
+    let deliveryError: string | null = null;
     if (action === 'publish' || action === 'reopen') {
-      await dispatchPortfolioDelivery(context.locals.env, store);
+      try {
+        delivery = await dispatchPortfolioDelivery(context.locals.env, store);
+      } catch (error) {
+        deliveryError = error instanceof Error ? error.message : 'Telegram delivery failed.';
+      }
     }
-    return jsonResponse({ ok: true, status: result.opportunity.status, warnings: result.warnings });
+    return jsonResponse({ ok: true, status: result.opportunity.status, warnings: result.warnings, delivery, deliveryError });
   } catch (error) {
     return apiError(error);
   }

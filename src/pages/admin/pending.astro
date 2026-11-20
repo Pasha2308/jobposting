@@ -3,11 +3,16 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import Icon from '../../components/Icon.astro';
 import { loadAdminOpportunities } from '../../lib/admin-data';
 import { relativeTime } from '../../lib/domain/format';
+import { checkEnglishJobContent } from '../../lib/domain/language';
 
 const env = Astro.locals.env;
 const pending = await loadAdminOpportunities(env, { status: 'pending_review', pageSize: 50, sort: 'oldest' });
 const drafts = await loadAdminOpportunities(env, { status: 'draft', pageSize: 8, sort: 'updated' });
 const waiting = pending.data.items;
+const languageById = new Map(waiting.map((item) => {
+  const language = checkEnglishJobContent(item, (item as typeof item & { source_capture_text?: string | null }).source_capture_text);
+  return [item.id, { ok: language.ok, reason: language.ok ? 'English content' : language.reason }] as const;
+}));
 ---
 
 <AdminLayout
@@ -43,6 +48,7 @@ const waiting = pending.data.items;
               <tr>
                 <td>
                   <div class="cell-title"><a href={`/admin/opportunities/${o.id}`}>{o.title}</a></div>
+                  <div class="cell-sub">{languageById.get(o.id)?.ok ? 'English content' : `Excluded from publishing: ${languageById.get(o.id)?.reason}`}</div>
                   <div class="cell-sub">
                     {o.job_code ? `${o.job_code} · ` : ''}{o.company?.name ?? 'Company not set'} · {o.category?.name ?? 'No category'} ·{' '}
                     {[o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Location not specified'}
@@ -68,8 +74,8 @@ const waiting = pending.data.items;
                 <td class="tiny muted">{relativeTime(o.updated_at)}</td>
                 <td>
                   <div class="actions">
-                    <button class="btn btn--primary btn--sm" type="button" data-transition="publish" data-id={o.id}>
-                      Publish
+                    <button class="btn btn--primary btn--sm" type="button" data-transition="publish" data-id={o.id} disabled={!languageById.get(o.id)?.ok}>
+                      Approve &amp; publish
                     </button>
                     <button class="btn btn--danger btn--sm" type="button" data-transition="reject" data-id={o.id}>
                       Reject
@@ -129,6 +135,12 @@ const waiting = pending.data.items;
   const statusBox = document.querySelector<HTMLElement>('[data-queue-status]');
   const errorBox = document.querySelector<HTMLElement>('[data-queue-error]');
   const buttons = document.querySelectorAll<HTMLButtonElement>('[data-transition]');
+  const previousResult = sessionStorage.getItem('admin-pending-result');
+  if (previousResult && statusBox) {
+    statusBox.textContent = previousResult;
+    statusBox.hidden = false;
+    sessionStorage.removeItem('admin-pending-result');
+  }
 
   for (const button of buttons) {
     button.addEventListener('click', async () => {
@@ -153,7 +165,14 @@ const waiting = pending.data.items;
           body: JSON.stringify({ action }),
         });
         const result = (await response.json().catch(() => null)) as
-          | { ok?: boolean; status?: string; error?: string; blocking?: string[] }
+          | {
+              ok?: boolean;
+              status?: string;
+              error?: string;
+              blocking?: string[];
+              delivery?: { sent: number; failed: number; batchNumber: number | null } | null;
+              deliveryError?: string | null;
+            }
           | null;
         if (!response.ok || !result?.ok) {
           if (statusBox) statusBox.hidden = true;
@@ -166,6 +185,11 @@ const waiting = pending.data.items;
           button.removeAttribute('disabled');
           return;
         }
+        const delivery = result.delivery
+          ? ` Telegram: ${result.delivery.sent} sent${result.delivery.failed ? `, ${result.delivery.failed} failed` : ''}${result.delivery.batchNumber ? ` (batch ${result.delivery.batchNumber})` : ''}.`
+          : '';
+        const deliveryError = result.deliveryError ? ` Telegram delivery issue: ${result.deliveryError}` : '';
+        sessionStorage.setItem('admin-pending-result', `Opportunity ${result.status ?? 'updated'}.${delivery}${deliveryError}`);
         window.location.reload();
       } catch {
         if (statusBox) statusBox.hidden = true;
