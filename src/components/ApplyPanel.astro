@@ -17,13 +17,7 @@ const { opportunity: o, routes, closed, applyPath } = Astro.props;
 <div class="apply-card" data-apply-card data-opportunity-id={o.id}>
   <div class="apply-card__head">
     <span class="apply-card__title">{closed ? 'Applications closed' : 'How to apply'}</span>
-    {closed ? (
-      <span class="badge badge--closed">Closed</span>
-    ) : o.last_verified_at ? (
-      <span class="badge badge--source_open"><Icon name="shield" size={10} /> Checked</span>
-    ) : (
-      <span class="badge badge--needs_verification">Unverified</span>
-    )}
+    {closed && <span class="badge badge--closed">Closed</span>}
   </div>
 
   {closed ? (

@@ -17,6 +17,7 @@ export const POST: APIRoute = async (context) => {
     assertSameOrigin(context.request, context.locals.env);
     const admin = context.locals.admin;
     if (!admin) throw new ServiceError('unauthorised', 'Sign in required.', 401);
+    if (admin.role !== 'owner') throw new ServiceError('forbidden', 'Owner access required to manage the portfolio Telegram webhook.', 403);
     const env = context.locals.env;
     if (!isPortfolioControlBotConfigured(env) || !env.portfolioTelegramBotToken || !env.portfolioTelegramWebhookSecret) {
       throw new ServiceError('telegram_not_configured', 'Set PORTFOLIO_TELEGRAM_BOT_TOKEN, PORTFOLIO_TELEGRAM_CHAT_ID and PORTFOLIO_TELEGRAM_WEBHOOK_SECRET first.', 503);
@@ -38,6 +39,7 @@ export const GET: APIRoute = async (context) => {
   try {
     const admin = context.locals.admin;
     if (!admin) throw new ServiceError('unauthorised', 'Sign in required.', 401);
+    if (admin.role !== 'owner') throw new ServiceError('forbidden', 'Owner access required to inspect the portfolio Telegram webhook.', 403);
     const token = context.locals.env.portfolioTelegramBotToken;
     if (!token) throw new ServiceError('telegram_not_configured', 'Portfolio bot token is missing.', 503);
     const result = await telegramApi(token, 'getWebhookInfo', {});

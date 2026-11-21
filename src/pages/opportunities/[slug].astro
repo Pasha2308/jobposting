@@ -38,7 +38,6 @@ const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
 const experience = formatExperience(o.experience_min_years, o.experience_max_years);
-const fresh = closed ? 'No longer active' : o.last_verified_at ? 'Source checked' : 'Awaiting verification';
 const description = o.summary
   ? truncate(plainText(o.summary), 158)
   : `${o.title} at ${o.company?.name ?? 'a startup'} — a curated startup opportunity with source and application details.`;
@@ -141,7 +140,6 @@ if (!closed) {
               ) : (
                 <span class="chip chip--muted">Uncategorised</span>
               )}
-              <span class:list={['chip', closed ? 'chip--muted' : 'chip--brand']}>{fresh}</span>
               <span class="chip">
                 <Icon name="clock" size={11} /> Discovered {relativeTime(o.discovered_at).toLowerCase()}
               </span>
@@ -227,16 +225,12 @@ if (!closed) {
           )}
 
           <section class="detail__section">
-            <h2>Source & verification</h2>
+            <h2>Source</h2>
             <div class="stack">
               <div class="meta-list">
                 <div class="meta-list__row">
                   <span class="meta-list__key">Source company</span>
                   <span class="meta-list__val">{o.company?.name ?? 'Not specified'}</span>
-                </div>
-                <div class="meta-list__row">
-                  <span class="meta-list__key">Verification</span>
-                  <span class="meta-list__val">{fresh}</span>
                 </div>
               </div>
 

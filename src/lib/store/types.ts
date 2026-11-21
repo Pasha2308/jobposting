@@ -83,6 +83,7 @@ export type CandidateApplicationLead = {
   consented_at: string;
   created_at: string;
   last_redirected_at: string;
+  verified_at?: string | null;
   job_code: string | null;
   title: string;
   company_name: string | null;
@@ -94,7 +95,12 @@ export type CandidateApplicationInput = {
   email_normalized: string;
   consented_at: string;
   consent_text_version: string;
+  verified_at: string;
 };
+export type CandidateOtpRequest = { email_hash: string; opportunity_id: string; code_hash: string; consented_at: string; ip_hash: string; now: string };
+export type CandidateOtpResult = { allowed: boolean; reason?: string };
+export type CandidateOtpVerify = { email: string; email_hash: string; code_hash: string; now: string; consent_text_version: string };
+export type CandidateOtpVerifyResult = { verified: boolean; reason?: string };
 export type LinkedInDeliveryItem = { opportunity_id: string; batch_number: number };
 export type LinkedInDeliveryCounts = { queued: number; sending: number; sent: number; acknowledged: number; failed: number };
 
@@ -170,6 +176,8 @@ export interface Store {
 
   /* candidate application email capture */
   recordCandidateApplication(input: CandidateApplicationInput): Promise<void>;
+  requestCandidateEmailOtp(input: CandidateOtpRequest): Promise<CandidateOtpResult>;
+  verifyCandidateEmailOtp(input: CandidateOtpVerify): Promise<CandidateOtpVerifyResult>;
   listCandidateApplications(limit?: number): Promise<CandidateApplicationLead[]>;
   purgeStaleCandidateApplications(): Promise<number>;
 

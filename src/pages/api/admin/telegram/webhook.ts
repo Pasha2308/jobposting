@@ -20,6 +20,7 @@ export const POST: APIRoute = async (context) => {
     const store = requireStore(context.locals.env);
     const admin = context.locals.admin;
     if (!admin) throw new ServiceError('unauthorised', 'Sign in required.', 401);
+    if (admin.role !== 'owner') throw new ServiceError('forbidden', 'Owner access required to manage the Telegram webhook.', 403);
     const env = context.locals.env;
     if (!isTelegramConfigured(env) || !env.telegramBotToken || !env.telegramWebhookSecret) {
       throw new ServiceError(
@@ -57,6 +58,7 @@ export const GET: APIRoute = async (context) => {
   try {
     const admin = context.locals.admin;
     if (!admin) throw new ServiceError('unauthorised', 'Sign in required.', 401);
+    if (admin.role !== 'owner') throw new ServiceError('forbidden', 'Owner access required to inspect the Telegram webhook.', 403);
     const env = context.locals.env;
     if (!env.telegramBotToken) throw new ServiceError('telegram_not_configured', 'Telegram token is missing.', 503);
     const result = await telegramApi(env.telegramBotToken, 'getWebhookInfo', {});

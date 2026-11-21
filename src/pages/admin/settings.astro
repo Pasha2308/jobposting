@@ -5,6 +5,7 @@ import { loadAdminSettings } from '../../lib/admin-data';
 import { configurationReport } from '../../lib/env';
 
 const env = Astro.locals.env;
+if (Astro.locals.admin?.role !== 'owner') return Astro.rewrite('/404');
 const settings = await loadAdminSettings(env);
 const config = configurationReport(env);
 const s = settings.data;
@@ -46,6 +47,12 @@ const integrations = [
     env: 'PUBLIC_TURNSTILE_SITE_KEY · TURNSTILE_SECRET_KEY',
     detail: 'Optional bot protection for public submissions and reports. Honeypot and rate limits still apply.',
   },
+  {
+    name: 'Candidate email verification',
+    ok: config.candidateEmailVerification,
+    env: 'RESEND_API_KEY · CANDIDATE_EMAIL_FROM · CANDIDATE_EMAIL_OTP_SECRET',
+    detail: 'One-time candidate verification emails. Requires a verified sender domain; no candidate email is stored until the code is verified.',
+  },
 ];
 
 const setupChecks = [
@@ -56,6 +63,7 @@ const setupChecks = [
   { label: 'Telegram webhook configured', done: config.telegram },
   { label: 'Portfolio control bot configured', done: config.portfolioControlBot },
   { label: 'Turnstile configured (optional)', done: config.turnstile },
+  { label: 'Candidate email verification configured', done: config.candidateEmailVerification },
 ];
 ---
 

@@ -30,6 +30,10 @@ import type {
   CaptureFilters,
   CandidateApplicationInput,
   CandidateApplicationLead,
+  CandidateOtpRequest,
+  CandidateOtpResult,
+  CandidateOtpVerify,
+  CandidateOtpVerifyResult,
   CommentSetInput,
   CommentWithOpportunity,
   LocationCount,
@@ -1216,15 +1220,35 @@ export class SupabaseStore implements Store {
       email_normalized: input.email_normalized,
       consented_at: input.consented_at,
       consent_text_version: input.consent_text_version,
+      verified_at: input.verified_at,
       last_redirected_at: new Date().toISOString(),
     }, { onConflict: 'opportunity_id,email_normalized' });
     if (error) fail(error, 'Could not record candidate application');
   }
 
+  async requestCandidateEmailOtp(input: CandidateOtpRequest): Promise<CandidateOtpResult> {
+    const { data, error } = await this.client.rpc('request_candidate_email_otp', {
+      p_email_hash: input.email_hash, p_opportunity_id: input.opportunity_id, p_code_hash: input.code_hash,
+      p_consented_at: input.consented_at, p_ip_hash: input.ip_hash, p_now: input.now,
+    });
+    if (error) fail(error, 'Could not request candidate email verification');
+    return data as CandidateOtpResult;
+  }
+
+  async verifyCandidateEmailOtp(input: CandidateOtpVerify): Promise<CandidateOtpVerifyResult> {
+    const { data, error } = await this.client.rpc('verify_candidate_email_otp', {
+      p_email: input.email, p_email_hash: input.email_hash, p_code_hash: input.code_hash, p_now: input.now,
+      p_consent_text_version: input.consent_text_version,
+    });
+    if (error) fail(error, 'Could not verify candidate email');
+    return data as CandidateOtpVerifyResult;
+  }
+
   async listCandidateApplications(limit = 500): Promise<CandidateApplicationLead[]> {
     const { data, error } = await this.client
       .from('candidate_applications')
-      .select('id,opportunity_id,email,consented_at,created_at,last_redirected_at,opportunity:opportunities!inner(job_code,title,company:companies(name))')
+      .select('id,opportunity_id,email,consented_at,created_at,last_redirected_at,verified_at,opportunity:opportunities!inner(job_code,title,company:companies(name))')
+      .not('verified_at', 'is', null)
       .order('created_at', { ascending: false })
       .limit(Math.min(1000, Math.max(1, limit)));
     if (error) fail(error, 'Could not load candidate applications');
@@ -1238,6 +1262,7 @@ export class SupabaseStore implements Store {
         consented_at: String(row.consented_at),
         created_at: String(row.created_at),
         last_redirected_at: String(row.last_redirected_at),
+        verified_at: str(row.verified_at),
         job_code: str(opportunity?.job_code),
         title: String(opportunity?.title ?? 'Opportunity removed'),
         company_name: str(company?.name),

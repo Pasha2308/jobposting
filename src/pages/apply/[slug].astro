@@ -1,9 +1,9 @@
 ---
 import PublicLayout from '../../layouts/PublicLayout.astro';
-import Icon from '../../components/Icon.astro';
 import { isExpired, isPubliclyVisible, loadOpportunityByJobCode } from '../../lib/page-data';
 import { resolveCandidateRedirectRoute } from '../../lib/domain/validation';
 import { opportunityPublicId } from '../../lib/domain/url';
+import { candidateOtpConfigured } from '../../lib/services/candidate-apply';
 
 const env = Astro.locals.env;
 const identifier = Astro.params.slug ?? '';
@@ -18,29 +18,31 @@ if (!route) return Astro.rewrite('/404');
 const id = opportunityPublicId(opportunity);
 const error = Astro.url.searchParams.get('error');
 const siteKey = env.turnstileSiteKey;
+const verificationAvailable = candidateOtpConfigured(env);
 ---
 
 <PublicLayout
   title={`Continue to ${opportunity.company?.name ?? 'the employer'} — Hustler Community`}
   description="Share your email with Hustler Community to continue to the employer's application page."
 >
-  <div class="container" style="max-width:680px;padding-top:3rem;padding-bottom:4rem">
+  <div class="container apply-page" style="max-width:680px;padding-top:2rem;padding-bottom:4rem">
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <a href="/opportunities">Opportunities</a><span class="sep">/</span>
       <a href={`/opportunities/${id}`}>{opportunity.title}</a><span class="sep">/</span>
       <span aria-current="page">Apply</span>
     </nav>
 
-    <section class="panel" style="margin-top:1.5rem">
+    <section class="panel apply-page__panel" style="margin-top:1rem">
       <div class="panel__head"><span class="eyebrow eyebrow--brand">Continue to apply</span></div>
       <div class="panel__body">
-        <h1 style="margin-top:0">{opportunity.title}</h1>
-        <p class="muted" style="margin-top:-0.5rem">{opportunity.company?.name ?? 'Company not specified'} · {opportunity.location_text ?? 'Location not specified'}</p>
-        <p>Enter your email to continue to the employer's application page. Hustler Community records your email and this job selection with your consent. We do not send your email to the employer.</p>
+        <h1 class="apply-page__title">{opportunity.title}</h1>
+        <p class="apply-page__job">{opportunity.company?.name ?? 'Company not specified'} · {opportunity.location_text ?? 'Location not specified'}</p>
+        <p class="apply-page__intro">Verify your email, then continue to the employer’s application page. Your address is not sent to the employer or used for marketing.</p>
 
         {error && <div class="alert alert--warning" role="alert">{error}</div>}
+        {!verificationAvailable && <div class="alert alert--warning" role="status">Email verification is temporarily unavailable. Please try again later.</div>}
 
-        <form method="post" action="/api/public/apply" class="form-grid" style="margin-top:1.5rem">
+        <form data-apply-otp-form class="form-grid apply-page__form" style="margin-top:1.25rem">
           <input type="hidden" name="job_code" value={id} />
           <div class="field" aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">
             <label for="website">Leave this field empty</label>
@@ -48,20 +50,81 @@ const siteKey = env.turnstileSiteKey;
           </div>
           <div class="field col-span-2">
             <label for="email">Email address</label>
-            <input class="input" id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
+            <input class="input" id="email" name="email" type="email" autocomplete="email" maxlength="254" autofocus required disabled={!verificationAvailable} />
           </div>
           <label class="field col-span-2" style="display:flex;gap:.65rem;align-items:flex-start">
-            <input type="checkbox" name="consent" value="yes" required style="margin-top:.3rem" />
-            <span>I agree that Hustler Community may keep my email with this job selection to understand candidate interest. See the <a href="/privacy" style="text-decoration:underline">privacy policy</a>.</span>
+            <input type="checkbox" name="consent" value="yes" required style="margin-top:.3rem" disabled={!verificationAvailable} />
+            <span>I agree that Hustler Community may verify and store my email with this job selection to measure interest. It will not be sent to the employer or used for marketing. Read our <a href="/terms" style="text-decoration:underline">Terms</a> and <a href="/privacy" style="text-decoration:underline">Privacy Policy</a>.</span>
           </label>
           {siteKey && <div class="cf-turnstile" data-sitekey={siteKey}></div>}
           <div class="field col-span-2">
-            <button class="btn btn--primary" type="submit"><Icon name="arrow-up-right" size={14} /> Continue to {opportunity.company?.name ?? 'employer'}</button>
+            <button class="btn btn--primary" type="submit" disabled={!verificationAvailable} data-apply-submit>Send verification code</button>
             <a class="btn btn--ghost" href={`/opportunities/${id}`}>Back to job details</a>
           </div>
+          <div data-otp-stage hidden class="field col-span-2" aria-live="polite">
+            <label for="otp-code">Verification code</label>
+            <p class="muted">Enter the 6-digit code we sent to <strong data-otp-address></strong>. It expires in 10 minutes.</p>
+            <input class="input" id="otp-code" name="otp_code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" />
+            <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.8rem">
+              <button class="btn btn--primary" type="button" data-otp-verify>Verify and continue</button>
+              <button class="btn btn--ghost" type="button" data-otp-resend>Send a new code</button>
+            </div>
+          </div>
+          <p class="field col-span-2" data-otp-message role="status" aria-live="polite"></p>
         </form>
         {siteKey && <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>}
       </div>
     </section>
   </div>
 </PublicLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-apply-otp-form]');
+  if (form) {
+    const email = form.querySelector<HTMLInputElement>('#email')!;
+    const stage = form.querySelector<HTMLElement>('[data-otp-stage]')!;
+    const code = form.querySelector<HTMLInputElement>('#otp-code')!;
+    const status = form.querySelector<HTMLElement>('[data-otp-message]')!;
+    const submit = form.querySelector<HTMLButtonElement>('[data-apply-submit]')!;
+    const jobCode = (form.querySelector<HTMLInputElement>('[name="job_code"]')!).value;
+    const message = (text: string) => { status.textContent = text; };
+    const send = async () => {
+      message('Sending your code…');
+      submit.disabled = true;
+      try {
+        const data = new FormData(form);
+        const response = await fetch('/api/public/apply/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.fromEntries(data.entries())) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not send the code. Try again.');
+        stage.hidden = false;
+        form.querySelector<HTMLElement>('[data-otp-address]')!.textContent = email.value.trim();
+        code.required = true;
+        code.focus();
+        message(result.message || 'Check your email for the verification code.');
+      } catch (error) { message(error instanceof Error ? error.message : 'Could not send the code. Try again.'); }
+      finally { submit.disabled = false; }
+    };
+    form.addEventListener('submit', (event) => { event.preventDefault(); void send(); });
+    form.querySelector<HTMLButtonElement>('[data-otp-resend]')!.addEventListener('click', () => void send());
+    form.querySelector<HTMLButtonElement>('[data-otp-verify]')!.addEventListener('click', async () => {
+      message('Verifying…');
+      try {
+        const response = await fetch('/api/public/apply/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ job_code: jobCode, email: email.value, code: code.value }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not verify the code.');
+        window.location.assign(result.redirectTo);
+      } catch (error) { message(error instanceof Error ? error.message : 'Could not verify the code.'); }
+    });
+  }
+</script>
+
+<style>
+  .apply-page__panel { max-width: 620px; margin-inline: auto; }
+  .apply-page__title { margin: 0; max-width: 28ch; font-size: clamp(1.55rem, 3.2vw, 2.1rem); line-height: 1.18; letter-spacing: -0.025em; }
+  .apply-page__job { margin-top: .4rem; color: var(--muted); font-size: var(--fs-sm); }
+  .apply-page__intro { margin-top: 1rem; max-width: 62ch; color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.6; }
+  .apply-page__form { gap: .9rem; }
+  .apply-page__form .field label { font-size: var(--fs-sm); }
+  .apply-page__form input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--brand); flex: 0 0 auto; }
+  .apply-page__form label span { font-size: var(--fs-xs); line-height: 1.6; }
+</style>

@@ -13,7 +13,7 @@ const leads = await requireStore(Astro.locals.env).listCandidateApplications(500
 
 <AdminLayout
   title="Candidate emails"
-  description="Emails candidates chose to share before continuing to an employer application."
+  description="Email addresses candidates verified before continuing to an employer application."
   active="candidate-emails"
 >
   <section class="panel">
@@ -22,7 +22,7 @@ const leads = await requireStore(Astro.locals.env).listCandidateApplications(500
       <span class="chip">{leads.length} recent</span>
     </div>
     <div class="panel__body">
-      <p class="muted">These addresses are not verified and are not sent to employers. Records are removed 180 days after the last application redirect.</p>
+      <p class="muted">These addresses were verified by email and are not sent to employers or used for marketing. Records are removed 180 days after the last redirect.</p>
       {leads.length ? (
         <div class="table-wrap">
           <table class="table">
@@ -35,14 +35,14 @@ const leads = await requireStore(Astro.locals.env).listCandidateApplications(500
                     {lead.job_code ? <a href={`/opportunities/${lead.job_code}`} target="_blank" rel="noopener">{lead.title} · {lead.job_code}</a> : lead.title}
                   </td>
                   <td>{lead.company_name ?? 'Not specified'}</td>
-                  <td>{formatDate(lead.consented_at)}</td>
+                  <td>{formatDate(lead.verified_at ?? lead.consented_at)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <div class="empty-state"><strong>No candidate emails yet.</strong><p>Emails appear here only after a candidate enters an address and checks the consent box.</p></div>
+        <div class="empty-state"><strong>No verified candidate emails yet.</strong><p>Only addresses verified with a one-time code appear here.</p></div>
       )}
     </div>
   </section>

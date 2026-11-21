@@ -44,9 +44,9 @@ const tools: NavItem[] = [
   { key: 'companies', href: '/admin/companies', label: 'Companies and sources', icon: 'building' },
   { key: 'categories', href: '/admin/categories', label: 'Categories', icon: 'folder' },
   { key: 'analytics', href: '/admin/analytics', label: 'Analytics', icon: 'chart' },
-  { key: 'settings', href: '/admin/settings', label: 'Settings', icon: 'settings' },
 ];
 if (admin.role === 'owner') {
+  tools.push({ key: 'settings', href: '/admin/settings', label: 'Settings', icon: 'settings' });
   tools.push({ key: 'candidate-emails', href: '/admin/candidate-emails', label: 'Candidate emails', icon: 'mail' });
 }
 const showTools = tools.some((item) => item.key === active);

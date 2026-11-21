@@ -29,7 +29,7 @@ const updated = '20 November 2026';
       <p>
         Hustler Community Opportunities (“the directory”) is a curated opportunity directory operated as part of the
         Hustler Community. The public site is at this domain; the community is on
-        <a href="https://www.linkedin.com/company/hustlercommunity/home" target="_blank" rel="noopener noreferrer"
+        <a href="https://www.linkedin.com/company/hustlercommunity" target="_blank" rel="noopener noreferrer"
           >our official LinkedIn page</a
         >.
       </p>
@@ -62,10 +62,13 @@ const updated = '20 November 2026';
 
       <h3>Continuing to an employer application</h3>
       <p>
-        Before you continue to an employer's application page, you may choose to provide your email and must agree to
-        its collection. We store the email with the job you selected to understand candidate interest and improve the
-        directory. We do not send your email to the employer, use it to create an account, or send marketing email.
-        The email address is not verified. You can request deletion through the report form.
+        Before you continue to an employer's application page, you may provide your email and consent to its collection.
+        We send a one-time code to verify that address. While the code is pending, the address is held temporarily for
+        up to 10 minutes; failed or expired requests are not added to candidate records. Hashed email and network
+        identifiers used to enforce sending limits are deleted in the daily cleanup after two days. After successful verification,
+        we store the verified email with the job you selected to understand candidate interest and improve the directory.
+        We do not send your email to the employer, use it to create an account, or send marketing email. You can request
+        deletion through the report form.
       </p>
 
       <h3>Admin workspace</h3>
@@ -79,6 +82,7 @@ const updated = '20 November 2026';
       <ul>
         <li><strong>Supabase</strong> — database and authentication hosting.</li>
         <li><strong>Vercel</strong> — application hosting. Cloudflare Turnstile may be used for bot protection on public forms.</li>
+        <li><strong>Resend</strong> — delivery of the one-time verification email when candidate email verification is enabled.</li>
         <li><strong>Groq</strong> (default) or <strong>Google Gemini</strong> when configured - pasted or retrieved source text is sent server-side to extract structured fields. The integration is used for extraction only; the model does not publish anything.</li>
         <li><strong>Telegram</strong> — when the owner bot is configured, the owner can submit a source and receive a review preview. Telegram processes those messages under its own terms.</li>
       </ul>
@@ -94,7 +98,7 @@ const updated = '20 November 2026';
         audited or corrected; after that, raw text and comments are purged while the reviewed listing and its source
         reference remain. Reports are retained while needed to resolve the issue. Anonymous analytics events are
         retained for aggregate reporting and are not tied to individuals. Candidate email records are removed 180
-        days after the last redirect to the employer's application page.
+        days after the last redirect to the employer's application page. Pending verification codes expire after 10 minutes.
       </p>
 
       <h2>Your choices</h2>
@@ -122,7 +126,7 @@ const updated = '20 November 2026';
       <h2>Contact</h2>
       <p>
         Privacy questions can be sent through the <a href="/report">report form</a> or the
-        <a href="https://www.linkedin.com/company/hustlercommunity/home" target="_blank" rel="noopener noreferrer"
+        <a href="https://www.linkedin.com/company/hustlercommunity" target="_blank" rel="noopener noreferrer"
           >official Hustler Community LinkedIn page</a
         >.
       </p>

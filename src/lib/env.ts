@@ -31,6 +31,9 @@ export type AppEnv = {
   portfolioGetroSourceCredentials: Record<string, { apiKey: string; networkId: number }>;
   turnstileSecretKey: string | null;
   turnstileSiteKey: string | null;
+  candidateEmailResendApiKey: string | null;
+  candidateEmailFrom: string | null;
+  candidateEmailOtpSecret: string | null;
   /** Enables the isolated public JSON-LD adapter. Off unless both flags are on. */
   linkedinJsonLdEnabled: boolean;
   /** Confirms legal/contractual authorisation to retrieve LinkedIn pages. */
@@ -156,6 +159,9 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     portfolioGetroSourceCredentials,
     turnstileSecretKey: read('TURNSTILE_SECRET_KEY') ?? null,
     turnstileSiteKey: read('PUBLIC_TURNSTILE_SITE_KEY') ?? null,
+    candidateEmailResendApiKey: read('RESEND_API_KEY') ?? null,
+    candidateEmailFrom: read('CANDIDATE_EMAIL_FROM') ?? null,
+    candidateEmailOtpSecret: read('CANDIDATE_EMAIL_OTP_SECRET') ?? null,
     linkedinJsonLdEnabled: truthy(read('LINKEDIN_JSONLD_RETRIEVAL_ENABLED')),
     linkedinRetrievalAuthorised: truthy(read('LINKEDIN_RETRIEVAL_AUTHORISED')),
     cronSecret: read('CRON_SECRET') ?? null,
@@ -207,6 +213,7 @@ export function configurationReport(env: AppEnv) {
     portfolioDiscovery: isPortfolioDiscoveryConfigured(env),
     portfolioControlBot: isPortfolioControlBotConfigured(env),
     turnstile: Boolean(env.turnstileSecretKey && env.turnstileSiteKey),
+    candidateEmailVerification: Boolean(env.candidateEmailResendApiKey && env.candidateEmailFrom && env.candidateEmailOtpSecret),
     linkedinRetrieval: isLinkedInRetrievalEnabled(env) ? 'jsonld' : 'disabled',
     siteUrl: env.siteUrl,
   };

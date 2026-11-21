@@ -28,6 +28,10 @@ import type {
   AdminOpportunityFilters,
   CandidateApplicationInput,
   CandidateApplicationLead,
+  CandidateOtpRequest,
+  CandidateOtpResult,
+  CandidateOtpVerify,
+  CandidateOtpVerifyResult,
   CaptureFilters,
   CommentSetInput,
   CommentWithOpportunity,
@@ -68,6 +72,8 @@ export class MemoryStore implements Store {
   private linkedinQueue = new Map<string, { status: 'queued' | 'sending' | 'sent' | 'acknowledged' | 'failed'; batch_number: number | null; telegram_message_id: number | null; attempts: number; last_error: string | null; retryable: boolean; created_at: string }>();
   private nextLinkedInBatch = 1;
   candidateApplications: CandidateApplicationLead[] = [];
+  candidateOtps = new Map<string, CandidateOtpRequest & { expires_at: string; attempts: number }>();
+  candidateOtpEvents: Array<{ email_hash: string; ip: string; created_at: string }> = [];
 
   /* categories */
   async listCategories(opts: { activeOnly?: boolean } = {}): Promise<Category[]> {
@@ -977,10 +983,40 @@ export class MemoryStore implements Store {
       consented_at: input.consented_at,
       created_at: now(),
       last_redirected_at: now(),
+      verified_at: input.verified_at,
       job_code: opportunity.job_code ?? null,
       title: opportunity.title,
       company_name: company?.name ?? null,
     });
+  }
+
+  async requestCandidateEmailOtp(input: CandidateOtpRequest): Promise<CandidateOtpResult> {
+    const nowMs = Date.parse(input.now);
+    this.candidateOtpEvents = this.candidateOtpEvents.filter((event) => nowMs - Date.parse(event.created_at) < 2 * 86400000);
+    const hour = (event: { created_at: string }) => nowMs - Date.parse(event.created_at) < 3600000;
+    if (this.candidateOtpEvents.filter((event) => event.email_hash === input.email_hash && hour(event)).length >= 5 ||
+      this.candidateOtpEvents.filter((event) => event.ip === input.ip_hash && hour(event)).length >= 10 ||
+      this.candidateOtpEvents.filter((event) => nowMs - Date.parse(event.created_at) < 86400000).length >= 80) return { allowed: false, reason: 'rate_limited' };
+    this.candidateOtpEvents.push({ email_hash: input.email_hash, ip: input.ip_hash, created_at: input.now });
+    this.candidateOtps.set(input.email_hash, { ...input, expires_at: new Date(nowMs + 600000).toISOString(), attempts: 0 });
+    return { allowed: true };
+  }
+
+  async verifyCandidateEmailOtp(input: CandidateOtpVerify): Promise<CandidateOtpVerifyResult> {
+    const otp = this.candidateOtps.get(input.email_hash);
+    if (!otp) return { verified: false, reason: 'missing' };
+    if (Date.parse(otp.expires_at) <= Date.parse(input.now)) { this.candidateOtps.delete(input.email_hash); return { verified: false, reason: 'expired' }; }
+    if (otp.attempts >= 5) { this.candidateOtps.delete(input.email_hash); return { verified: false, reason: 'attempts' }; }
+    if (otp.code_hash !== input.code_hash) {
+      otp.attempts += 1;
+      if (otp.attempts >= 5) { this.candidateOtps.delete(input.email_hash); return { verified: false, reason: 'attempts' }; }
+      return { verified: false, reason: 'invalid' };
+    }
+    const opp = this.opportunities.find((item) => item.id === otp.opportunity_id && item.status === 'published' && !item.closed_at);
+    if (!opp) { this.candidateOtps.delete(input.email_hash); return { verified: false, reason: 'job_unavailable' }; }
+    await this.recordCandidateApplication({ opportunity_id: otp.opportunity_id, email: input.email, email_normalized: input.email, consented_at: otp.consented_at, consent_text_version: input.consent_text_version, verified_at: input.now });
+    this.candidateOtps.delete(input.email_hash);
+    return { verified: true };
   }
 
   async listCandidateApplications(limit = 500): Promise<CandidateApplicationLead[]> {

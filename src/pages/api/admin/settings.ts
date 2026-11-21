@@ -10,6 +10,7 @@ export const POST: APIRoute = async (context) => {
     const store = requireStore(context.locals.env);
     const admin = context.locals.admin;
     if (!admin) throw new ServiceError('unauthorised', 'Sign in required.', 401);
+    if (admin.role !== 'owner') throw new ServiceError('forbidden', 'Owner access required.', 403);
 
     const body = (await readJson(context.request)) as Record<string, unknown>;
 
