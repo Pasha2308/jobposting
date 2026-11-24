@@ -34,7 +34,6 @@ const closed = o.status !== 'published' || Boolean(o.closed_at) || isExpired(o);
 const routeResult = resolveApplicationRoutes(o);
 const routes = routeResult.routes;
 const publicUrl = `${env.siteUrl.replace(/\/+$/, '')}/opportunities/${opportunityPublicId(o)}`;
-const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
 const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
 const experience = formatExperience(o.experience_min_years, o.experience_max_years);
@@ -155,11 +154,11 @@ if (!closed) {
             </div>
 
             <div class="detail__meta">
-              <span class="chip"><Icon name="map-pin" size={11} />{place}</span>
-              <span class="chip"><Icon name="briefcase" size={11} />{WORK_MODE_LABELS[o.work_mode]}</span>
-              <span class="chip"><Icon name="clock" size={11} />{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span>
-              <span class="chip">{experience}</span>
-              <span class:list={['chip', o.salary_min == null && o.salary_max == null && 'chip--muted']}>{salary}</span>
+              {(o.location_text || o.city || o.country) && <span class="chip"><Icon name="map-pin" size={11} />{place}</span>}
+              {o.work_mode !== 'unspecified' && <span class="chip"><Icon name="briefcase" size={11} />{WORK_MODE_LABELS[o.work_mode]}</span>}
+              {o.employment_type !== 'unspecified' && <span class="chip"><Icon name="clock" size={11} />{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span>}
+              {(o.experience_min_years != null || o.experience_max_years != null) && <span class="chip">{experience}</span>}
+              {(o.salary_min != null || o.salary_max != null) && <span class="chip">{salary}</span>}
               {o.deadline && <span class="chip">Apply by {formatDate(o.deadline)}</span>}
             </div>
           </header>
@@ -247,24 +246,23 @@ if (!closed) {
           <ApplyPanel opportunity={o} routes={routes} closed={closed} applyPath={`/apply/${opportunityPublicId(o)}`} />
 
           <div class="meta-list">
-            <div class="meta-list__row"><span class="meta-list__key">Salary</span><span class="meta-list__val">{salary}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Experience</span><span class="meta-list__val">{experience}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Work mode</span><span class="meta-list__val">{WORK_MODE_LABELS[o.work_mode]}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Employment</span><span class="meta-list__val">{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Location</span><span class="meta-list__val">{place}</span></div>
-            <div class="meta-list__row">
+            {(o.salary_min != null || o.salary_max != null) && <div class="meta-list__row"><span class="meta-list__key">Salary</span><span class="meta-list__val">{salary}</span></div>}
+            {(o.experience_min_years != null || o.experience_max_years != null) && <div class="meta-list__row"><span class="meta-list__key">Experience</span><span class="meta-list__val">{experience}</span></div>}
+            {o.work_mode !== 'unspecified' && <div class="meta-list__row"><span class="meta-list__key">Work mode</span><span class="meta-list__val">{WORK_MODE_LABELS[o.work_mode]}</span></div>}
+            {o.employment_type !== 'unspecified' && <div class="meta-list__row"><span class="meta-list__key">Employment</span><span class="meta-list__val">{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span></div>}
+            {(o.location_text || o.city || o.country) && <div class="meta-list__row"><span class="meta-list__key">Location</span><span class="meta-list__val">{place}</span></div>}
+            {o.original_posted_at && <div class="meta-list__row">
               <span class="meta-list__key">Original post date</span>
               <span class="meta-list__val">
-                {o.original_posted_at ? formatDate(o.original_posted_at) : 'Not specified'}
+                {formatDate(o.original_posted_at)}
                 {o.original_date_precision !== 'exact' && o.original_date_precision !== 'unknown' && (
                   <div class="tiny muted">{o.original_date_text ?? `Source stated: ${o.original_date_precision}`}</div>
                 )}
               </span>
-            </div>
+            </div>}
             <div class="meta-list__row"><span class="meta-list__key">Discovered</span><span class="meta-list__val">{formatDate(o.discovered_at)}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Listing duration</span><span class="meta-list__val">Removed after 90 days · {formatDate(expiresAt)}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Published</span><span class="meta-list__val">{o.published_at ? formatDate(o.published_at) : 'Not published'}</span></div>
-            <div class="meta-list__row"><span class="meta-list__key">Deadline</span><span class="meta-list__val">{o.deadline ? formatDate(o.deadline) : 'Not specified'}</span></div>
+            <div class="meta-list__row"><span class="meta-list__key">Freshness policy</span><span class="meta-list__val">Normally removed from public pages after 30 days</span></div>
+            {o.deadline && <div class="meta-list__row"><span class="meta-list__key">Deadline</span><span class="meta-list__val">{formatDate(o.deadline)}</span></div>}
           </div>
 
           <ShareBar url={publicUrl} title={`${o.title}${o.company?.name ? ` at ${o.company.name}` : ''}`} opportunityId={o.id} />

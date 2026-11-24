@@ -71,6 +71,8 @@ export class MemoryStore implements Store {
   private portfolioSearchRuns: PortfolioSearchRun[] = [];
   private linkedinQueue = new Map<string, { status: 'queued' | 'sending' | 'sent' | 'acknowledged' | 'failed'; batch_number: number | null; telegram_message_id: number | null; attempts: number; last_error: string | null; retryable: boolean; created_at: string }>();
   private nextLinkedInBatch = 1;
+  private xQueue = new Map<string, { status: 'queued' | 'sending' | 'sent' | 'acknowledged' | 'failed'; batch_number: number | null; telegram_message_id: number | null; attempts: number; last_error: string | null; retryable: boolean; created_at: string }>();
+  private nextXBatch = 1;
   candidateApplications: CandidateApplicationLead[] = [];
   candidateOtps = new Map<string, CandidateOtpRequest & { expires_at: string; attempts: number }>();
   candidateOtpEvents: Array<{ email_hash: string; ip: string; created_at: string }> = [];
@@ -965,6 +967,38 @@ export class MemoryStore implements Store {
   }
   async countPublishedWithoutLinkedInDraft(): Promise<number> {
     return this.opportunities.filter((item) => item.status === 'published' && Boolean(item.published_at) && !item.linkedin_post_draft).length;
+  }
+  async enqueueXPost(opportunityId: string): Promise<boolean> {
+    const opportunity = this.opportunities.find((item) => item.id === opportunityId);
+    if (!opportunity || opportunity.status !== 'published' || this.xQueue.has(opportunityId)) return false;
+    this.xQueue.set(opportunityId, { status: 'queued', batch_number: null, telegram_message_id: null, attempts: 0, last_error: null, retryable: true, created_at: now() });
+    return true;
+  }
+  async claimNextXDeliveryBatch(limit = 10): Promise<LinkedInDeliveryItem[]> {
+    const active = [...this.xQueue.values()].find((item) => item.batch_number !== null && ['sent', 'failed', 'sending'].includes(item.status));
+    const batch = active?.batch_number ?? this.nextXBatch++;
+    if (active?.status === 'sending') return [];
+    const rows = [...this.xQueue.entries()].filter(([, item]) => active
+      ? item.batch_number === batch && item.status === 'failed' && item.retryable
+      : item.status === 'queued').slice(0, Math.max(1, Math.min(10, limit)));
+    for (const [, item] of rows) { item.status = 'sending'; item.batch_number = batch; item.attempts += 1; }
+    return rows.map(([opportunity_id]) => ({ opportunity_id, batch_number: batch }));
+  }
+  async setXDeliveryState(opportunityId: string, state: 'sent' | 'failed', details: { telegramMessageId?: number; error?: string; retryable?: boolean } = {}): Promise<void> {
+    const item = this.xQueue.get(opportunityId); if (!item) return;
+    item.status = state; item.telegram_message_id = details.telegramMessageId ?? item.telegram_message_id;
+    item.last_error = details.error ?? null; item.retryable = details.retryable ?? false;
+  }
+  async prepareXDeliveryRetry(batchNumber: number): Promise<void> { for (const item of this.xQueue.values()) if (item.batch_number === batchNumber && item.status === 'failed') item.retryable = true; }
+  async acknowledgeXDeliveryBatch(batchNumber: number): Promise<boolean> {
+    const rows = [...this.xQueue.values()].filter((item) => item.batch_number === batchNumber);
+    if (!rows.length || rows.some((item) => ['failed', 'sending'].includes(item.status)) || !rows.some((item) => item.status === 'sent')) return false;
+    for (const item of rows) if (item.status === 'sent') item.status = 'acknowledged'; return true;
+  }
+  async currentXDeliveryBatch(): Promise<number | null> { return [...this.xQueue.values()].find((item) => item.batch_number !== null && ['sent', 'failed', 'sending'].includes(item.status))?.batch_number ?? null; }
+  async xDeliveryCounts(): Promise<LinkedInDeliveryCounts> {
+    const counts: LinkedInDeliveryCounts = { queued: 0, sending: 0, sent: 0, acknowledged: 0, failed: 0 };
+    for (const item of this.xQueue.values()) counts[item.status] += 1; return counts;
   }
 
   async recordCandidateApplication(input: CandidateApplicationInput): Promise<void> {

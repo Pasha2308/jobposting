@@ -6,12 +6,30 @@ import { MemoryStore } from '../../src/lib/store/memory-store';
 import { RecordingMessenger, SAMPLE_TEXT, fakeAI, seedStore, testEnv } from '../helpers';
 import { processCapture, submitCapture } from '../../src/lib/services/capture';
 import type { TelegramUpdate } from '../../src/lib/telegram/service';
+import { deliverNextXBatch } from '../../src/lib/portfolio/x-delivery';
 
 function responseJson(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
 describe('portfolio control bot', () => {
+  it('queues one X draft for every three publications and delivers it separately', async () => {
+    const { store } = await seedStore();
+    const env = testEnv({ portfolioTelegramChatId: '-10012345' });
+    const base = (await submitCapture(store, { sourceUrl: 'https://www.linkedin.com/posts/acme_x-ratio-1234567890', rawText: SAMPLE_TEXT, sourceType: 'linkedin_post', actor: 'admin:test' })).capture;
+    const processed = await processCapture(store, fakeAI(), base.id, { actor: 'admin:test', siteUrl: env.siteUrl });
+    const first = processed.opportunities[0]!;
+    for (let index = 0; index < 3; index += 1) {
+      const opportunity = index === 0 ? first : await store.createOpportunity({ ...first, id: undefined, job_code: undefined, slug: `x-ratio-${index}`, canonical_source_key: `x-ratio:${index}`, source_capture_id: null, status: 'pending_review', published_at: null, closed_at: null, publication_number: null });
+      await publishOpportunity(store, opportunity.id, 'admin:test', env.siteUrl);
+    }
+    expect((await store.xDeliveryCounts()).queued).toBe(1);
+    const messenger = new RecordingMessenger();
+    const delivered = await deliverNextXBatch(env, store, messenger, -10012345);
+    expect(delivered.sent).toBe(1);
+    expect(messenger.sent[0].text).toContain('𝕏 Ready-to-copy post');
+    expect(messenger.sent[0].text.length).toBeLessThan(500);
+  });
   it('verifies /start and runs one complete initial recent-jobs scan manually', async () => {
     const store = new MemoryStore();
     const messenger = new RecordingMessenger();
@@ -138,7 +156,7 @@ describe('portfolio control bot', () => {
     expect(postMessage).toContain('Founding Full Stack Engineer');
     expect(postMessage).toContain('/opportunities/HC-');
     expect(postMessage).toContain('Apply Now button');
-    expect(messenger.sent.at(-1)?.options?.reply_markup?.inline_keyboard[0][0]).toMatchObject({ text: 'DONE — SEND NEXT 30' });
+    expect(messenger.sent.at(-1)?.options?.reply_markup?.inline_keyboard[0][0]).toMatchObject({ text: 'DONE — SEND NEXT 15' });
 
     await acknowledgeAndContinue(env, store, messenger, delivered.batchNumber!);
     const counts = await store.linkedinDeliveryCounts();
@@ -220,7 +238,7 @@ describe('portfolio control bot', () => {
     expect(env.telegramAdminIds).toEqual([111]);
   });
 
-  it('sends 30 posts, waits for DONE, then sends the remaining post without duplicates', async () => {
+  it('sends configurable 15-post batches, waits for DONE, then sends the remainder without duplicates', async () => {
     const { store } = await seedStore();
     const env = testEnv({ portfolioTelegramChatId: '-10012345', telegramAdminIds: [111] });
     await store.setPortfolioAdminChat(111, -10012345);
@@ -256,19 +274,21 @@ describe('portfolio control bot', () => {
 
     const messenger = new RecordingMessenger();
     const first = await deliverNextLinkedInBatch(env, store, messenger, -10012345, 0);
-    expect(first.sent).toBe(30);
+    expect(first.sent).toBe(15);
     const firstPost = messenger.sent.find((item) => item.text.startsWith('📌 Ready-to-copy LinkedIn post'))?.text ?? '';
     expect(firstPost).toContain(`We're hiring: ${original.title} at Acme Labs`);
     expect(firstPost).toContain(`${env.siteUrl}/opportunities/${original.job_code}`);
     expect(firstPost.split(`${env.siteUrl}/opportunities/${original.job_code}`).length - 1).toBe(1);
     expect(firstPost).not.toMatch(/&lt;|<\/?p>/i);
-    await expect(store.linkedinDeliveryCounts().then((counts) => counts.sent)).resolves.toBe(30);
+    await expect(store.linkedinDeliveryCounts().then((counts) => counts.sent)).resolves.toBe(15);
 
-    await handlePortfolioBotUpdate({ update_id: 3001, message: { message_id: 3001, from: { id: 111 }, chat: { id: -10012345, type: 'group' }, text: '/done' } }, { env, store, messenger });
-    expect(messenger.sent.filter((item) => item.text.startsWith('📌 '))).toHaveLength(31);
+    await acknowledgeAndContinue(env, store, messenger, first.batchNumber!, 0);
+    expect(messenger.sent.filter((item) => item.text.startsWith('📌 '))).toHaveLength(30);
     const secondBatch = await store.currentLinkedInDeliveryBatch();
     expect(secondBatch).toBeGreaterThan(first.batchNumber!);
-    await handlePortfolioBotUpdate({ update_id: 3002, message: { message_id: 3002, from: { id: 111 }, chat: { id: -10012345, type: 'group' }, text: '/done' } }, { env, store, messenger });
+    await acknowledgeAndContinue(env, store, messenger, secondBatch!, 0);
+    expect(messenger.sent.filter((item) => item.text.startsWith('📌 '))).toHaveLength(31);
+    await acknowledgeAndContinue(env, store, messenger, await store.currentLinkedInDeliveryBatch() ?? undefined, 0);
     const postsAfterEmpty = messenger.sent.filter((item) => item.text.startsWith('📌 ')).length;
     await handlePortfolioBotUpdate({ update_id: 3003, message: { message_id: 3003, from: { id: 111 }, chat: { id: -10012345, type: 'group' }, text: '/done' } }, { env, store, messenger });
     expect(messenger.sent.filter((item) => item.text.startsWith('📌 '))).toHaveLength(postsAfterEmpty);

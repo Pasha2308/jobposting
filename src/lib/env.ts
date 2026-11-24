@@ -11,10 +11,13 @@ export type AppEnv = {
   supabaseAnonKey: string | null;
   supabaseServiceRoleKey: string | null;
   geminiApiKey: string | null;
+  geminiApiKeys: string[];
   geminiModel: string;
   aiProvider: 'none' | 'gemini' | 'groq';
   groqApiKey: string | null;
+  groqApiKeys: string[];
   groqModel: string;
+  linkedinDeliveryBatchSize: number;
   telegramBotToken: string | null;
   telegramWebhookSecret: string | null;
   telegramAdminIds: number[];
@@ -143,10 +146,13 @@ export function resolveEnv(runtime?: RuntimeEnv | null): AppEnv {
     supabaseAnonKey: read('SUPABASE_ANON_KEY') ?? null,
     supabaseServiceRoleKey: read('SUPABASE_SERVICE_ROLE_KEY') ?? null,
     geminiApiKey: read('GEMINI_API_KEY') ?? null,
+    geminiApiKeys: [read('GEMINI_API_KEY'), read('GEMINI_API_KEY_2'), read('GEMINI_API_KEY_3')].filter((value): value is string => Boolean(value)),
     geminiModel: read('GEMINI_MODEL') || 'gemini-2.5-flash',
     aiProvider: aiProviderValue === 'none' ? 'none' : aiProviderValue,
     groqApiKey: read('GROQ_API_KEY') ?? null,
+    groqApiKeys: [read('GROQ_API_KEY'), read('GROQ_API_KEY_2'), read('GROQ_API_KEY_3')].filter((value): value is string => Boolean(value)),
     groqModel: read('GROQ_MODEL') || 'openai/gpt-oss-120b',
+  linkedinDeliveryBatchSize: Math.max(10, Math.min(30, Number(read('LINKEDIN_DELIVERY_BATCH_SIZE')) || 15)),
     telegramBotToken: read('TELEGRAM_BOT_TOKEN') ?? null,
     telegramWebhookSecret: read('TELEGRAM_WEBHOOK_SECRET') ?? null,
     telegramAdminIds: adminIds,
@@ -178,8 +184,8 @@ export function isDatabaseConfigured(env: AppEnv): boolean {
 }
 
 export function isAiConfigured(env: AppEnv): boolean {
-  if (env.aiProvider === 'gemini') return Boolean(env.geminiApiKey);
-  if (env.aiProvider === 'groq') return Boolean(env.groqApiKey);
+  if (env.aiProvider === 'gemini') return env.geminiApiKeys.length > 0;
+  if (env.aiProvider === 'groq') return env.groqApiKeys.length > 0;
   return false;
 }
 

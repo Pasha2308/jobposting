@@ -264,7 +264,7 @@ describe('validateForPublication', () => {
     expect(result.routes.length).toBeGreaterThan(0);
   });
 
-  it('blocks missing company, category, summary and location', () => {
+  it('blocks missing company, category and summary but treats location as optional', () => {
     const result = validateForPublication(
       draft({ summary: 'Too short', location_text: null, country: null }),
       null,
@@ -274,7 +274,8 @@ describe('validateForPublication', () => {
     expect(result.blocking.join(' ')).toMatch(/company/i);
     expect(result.blocking.join(' ')).toMatch(/category/i);
     expect(result.blocking.join(' ')).toMatch(/summary/i);
-    expect(result.blocking.join(' ')).toMatch(/location/i);
+    expect(result.blocking.join(' ')).not.toMatch(/location/i);
+    expect(result.warnings.join(' ')).toMatch(/location/i);
   });
 
   it('blocks an already-passed deadline', () => {

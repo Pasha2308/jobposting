@@ -103,6 +103,8 @@ export type CandidateOtpVerify = { email: string; email_hash: string; code_hash:
 export type CandidateOtpVerifyResult = { verified: boolean; reason?: string };
 export type LinkedInDeliveryItem = { opportunity_id: string; batch_number: number };
 export type LinkedInDeliveryCounts = { queued: number; sending: number; sent: number; acknowledged: number; failed: number };
+export type XDeliveryItem = LinkedInDeliveryItem;
+export type XDeliveryCounts = LinkedInDeliveryCounts;
 
 /**
  * Persistence contract. Services depend on this interface, never on Supabase
@@ -173,6 +175,13 @@ export interface Store {
   currentLinkedInDeliveryBatch(): Promise<number | null>;
   linkedinDeliveryCounts(): Promise<LinkedInDeliveryCounts>;
   countPublishedWithoutLinkedInDraft(): Promise<number>;
+  enqueueXPost(opportunityId: string): Promise<boolean>;
+  claimNextXDeliveryBatch(limit?: number): Promise<XDeliveryItem[]>;
+  setXDeliveryState(opportunityId: string, state: 'sent' | 'failed', details?: { telegramMessageId?: number; error?: string; retryable?: boolean }): Promise<void>;
+  prepareXDeliveryRetry(batchNumber: number): Promise<void>;
+  acknowledgeXDeliveryBatch(batchNumber: number): Promise<boolean>;
+  currentXDeliveryBatch(): Promise<number | null>;
+  xDeliveryCounts(): Promise<XDeliveryCounts>;
 
   /* candidate application email capture */
   recordCandidateApplication(input: CandidateApplicationInput): Promise<void>;

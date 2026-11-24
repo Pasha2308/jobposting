@@ -3,11 +3,7 @@ import type { OpportunityWithRelations } from '../lib/domain/types';
 import {
   EMPLOYMENT_TYPE_LABELS,
   WORK_MODE_LABELS,
-  formatDate,
-  formatExperience,
-  formatSalary,
   freshness,
-  relativeTime,
 } from '../lib/domain/format';
 import Icon from './Icon.astro';
 
@@ -20,11 +16,7 @@ const { opportunity: o, featured = false } = Astro.props;
 
 const fresh = freshness(o);
 const place = [o.city, o.country].filter(Boolean).join(', ') || o.location_text || 'Not specified';
-const salary = formatSalary(o.salary_min, o.salary_max, o.currency, o.salary_period);
-const experience = formatExperience(o.experience_min_years, o.experience_max_years);
 const href = `/opportunities/${o.job_code ?? o.slug}`;
-const sourceDateVerified = Boolean(o.original_posted_at && o.last_verified_at);
-const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 ---
 
 <article class:list={['opp-card', featured && 'opp-card--featured']}>
@@ -55,24 +47,8 @@ const expiresAt = o.expires_at ?? new Date(Date.parse(o.discovered_at) + 90 * 24
     <span><Icon name="clock" size={13} />{EMPLOYMENT_TYPE_LABELS[o.employment_type]}</span>
   </div>
 
-  <div class="opp-card__facts">
-    <span class:list={['chip', o.salary_min == null && o.salary_max == null && 'chip--muted']}>{salary}</span>
-    {
-      (o.experience_min_years != null || o.experience_max_years != null) && (
-        <span class="chip chip--muted">{experience}</span>
-      )
-    }
-    {
-      sourceDateVerified && (
-        <span class="chip chip--muted" title="Original posting date as stated in the source, verified by an editor.">
-          Posted {formatDate(o.original_posted_at, { withYear: false })}
-        </span>
-      )
-    }
-  </div>
-
   <div class="opp-card__foot">
-    <span title="Hustler Community removes listings 90 days after their first discovery.">Discovered {relativeTime(o.discovered_at).toLowerCase()} · expires {formatDate(expiresAt, { withYear: false })}</span>
+    <span title="We aim to show only fresh opportunities and normally remove public listings after 30 days.">Fresh jobs only · normally removed after 30 days</span>
     <span class="opp-card__cta">View role <Icon name="arrow-right" size={13} /></span>
   </div>
 </article>

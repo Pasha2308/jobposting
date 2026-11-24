@@ -286,12 +286,15 @@ Copy `.env.example` to `.env`. On Vercel, set the same keys under Project Settin
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | **Server secret** | Server-side data access. Never exposed to the browser |
 | `AI_PROVIDER` | No | Server | `groq` (recommended), `gemini`, or `none` to disable extraction explicitly |
 | `GROQ_API_KEY` | Recommended | **Server secret** | Groq API key |
+| `GROQ_API_KEY_2`, `GROQ_API_KEY_3` | Optional | **Server secret** | Quota/timeout fallback credentials; never exposed or logged |
 | `GROQ_MODEL` | No | Server | Default `openai/gpt-oss-120b` |
 | `GEMINI_API_KEY` | Optional | **Server secret** | Only when `AI_PROVIDER=gemini` |
+| `GEMINI_API_KEY_2`, `GEMINI_API_KEY_3` | Optional | **Server secret** | Optional Gemini credential pool |
 | `GEMINI_MODEL` | No | Server | Default `gemini-2.5-flash` |
 | `TELEGRAM_BOT_TOKEN` | Optional | **Server secret** | Token from BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | Optional | **Server secret** | Random string; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token` |
 | `TELEGRAM_ADMIN_USER_IDS` | Optional | Server | Comma-separated numeric Telegram user IDs allowed to use the bot |
+| `LINKEDIN_DELIVERY_BATCH_SIZE` | No | Server | LinkedIn Telegram delivery size, 10–30; default 15 |
 | `LINKEDIN_JSONLD_RETRIEVAL_ENABLED` | No | Server | `false` by default. Enables the isolated public JSON-LD adapter |
 | `LINKEDIN_RETRIEVAL_AUTHORISED` | No | Server | `false` by default. Set only when legal/contractual authorisation exists |
 | `CRON_SECRET` | Recommended | **Server secret** | Bearer secret for `/api/cron/retry-retrievals`; Vercel Cron sends it automatically |
@@ -318,6 +321,13 @@ present (booleans only, no secrets).
    - `supabase/migrations/0004_capture_retrieval_enum.sql`
    - `supabase/migrations/0005_capture_retrieval_columns.sql`
    - `supabase/migrations/0006_retrieval_queue.sql`
+   - `supabase/migrations/0007_portfolio_job_ids.sql`
+   - `supabase/migrations/0008_portfolio_control_bot.sql`
+   - `supabase/migrations/0009_opportunity_expiry.sql`
+   - `supabase/migrations/0010_verified_company_watchlist.sql`
+   - `supabase/migrations/0011_candidate_application_emails.sql`
+   - `supabase/migrations/0012_candidate_email_otp.sql`
+   - `supabase/migrations/0013_x_post_delivery.sql`
 3. Copy from **Project Settings → API**:
    - Project URL → `SUPABASE_URL`
    - `anon` public key → `SUPABASE_ANON_KEY`
@@ -708,8 +718,8 @@ Both paths are logged to `activity_logs`.
 
 ### Portfolio jobs discovery
 
-The separate portfolio control bot supports `/start`, `/fetch`, `/status`, and
-`/done`, plus FETCH and DONE buttons. Discovery runs only after an admin sends
+The separate portfolio control bot supports `/start`, `/fetch`, `/status`,
+`/linkedin`, `/done`, `/x`, `/done_x`, and `/retry_x`. Discovery runs only after an admin sends
 `/fetch`; the daily recovery cron no longer searches jobs and remains available
 for retrieval and Telegram delivery retries. The first control-bot fetch reads
 all source jobs published in the previous 48 hours; later fetches use each
@@ -718,16 +728,19 @@ source's last successful checkpoint and do not cap the result count. Jobs go to
 and public page routes remain unchanged.
 
 On publication, the app saves a factual LinkedIn draft from the reviewed listing
-fields and queues it once. The separate bot sends up to 30 drafts per batch,
+fields and queues it once. The separate bot sends 15 drafts per batch by default
+(configurable from 10–30),
 waits for DONE before advancing, and records sent, acknowledged, and failed
 states. Temporary Telegram rate limits are retried. Failed or interrupted posts
 stay in the same batch. Delivery to Telegram does not mean anything was posted
 to LinkedIn. Admin job details also provide a Copy LinkedIn Post button. The
 manual LinkedIn capture bot keeps its separate token, webhook, and update IDs.
+Every third publication is also queued as a compact X draft, producing the
+approved 30 LinkedIn to 10 X ratio without using another AI request.
 
 Configure `PORTFOLIO_TELEGRAM_BOT_TOKEN`, numeric `PORTFOLIO_TELEGRAM_CHAT_ID`,
 `PORTFOLIO_TELEGRAM_WEBHOOK_SECRET`, and `PORTFOLIO_TELEGRAM_ADMIN_USER_IDS`, then apply migration
-`0008_portfolio_control_bot.sql`. In Admin → Settings, register the separate
+`0008_portfolio_control_bot.sql` and `0013_x_post_delivery.sql`. In Admin → Settings, register the separate
 webhook at `/api/telegram/portfolio-webhook`. Send `/start` in that configured
 chat from an ID listed in `PORTFOLIO_TELEGRAM_ADMIN_USER_IDS`. If that separate
 allowlist is unset, it falls back to `TELEGRAM_ADMIN_USER_IDS`; this keeps the

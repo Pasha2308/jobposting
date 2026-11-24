@@ -553,13 +553,13 @@ export function validateForPublication(
   if (!language.ok) blocking.push(language.reason);
 
   if (!o.title || o.title.trim().length < 3) blocking.push('A role title is required.');
-  if (!companyName || companyName.trim().length < 2) blocking.push('A verified company is required.');
+  if (!companyName || companyName.trim().length < 2) blocking.push('A company or hiring organisation name is required.');
   if (!categoryName) blocking.push('A category is required.');
   if (!o.summary || o.summary.trim().length < 30) blocking.push('A factual summary of at least 30 characters is required.');
   if (!o.responsibilities?.some((item) => item.trim())) warnings.push('Responsibilities were not separately stated in the source.');
   if (!o.requirements?.some((item) => item.trim())) warnings.push('Requirements were not separately stated in the source.');
   if (!o.source_url || !safeOutboundUrl(o.source_url)) blocking.push('A valid original source URL is required.');
-  if (!o.location_text && !o.country) blocking.push('Add a location or country (do not infer this from a company HQ).');
+  if (!o.location_text && !o.country) warnings.push('Location was not shared in the source.');
 
   const routes = resolveApplicationRoutes({ ...o, status: 'published' });
   blocking.push(...routes.blocking);

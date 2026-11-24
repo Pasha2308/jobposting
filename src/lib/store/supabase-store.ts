@@ -1165,7 +1165,7 @@ export class SupabaseStore implements Store {
   }
 
   async claimNextLinkedInDeliveryBatch(limit = 30): Promise<LinkedInDeliveryItem[]> {
-    const { data, error } = await this.client.rpc('claim_next_linkedin_delivery_batch', { p_limit: Math.min(30, limit) });
+    const { data, error } = await this.client.rpc('claim_next_linkedin_delivery_batch', { p_limit: Math.max(1, Math.min(30, limit)) });
     if (error) fail(error, 'Could not claim LinkedIn delivery batch');
     return (data ?? []).map((row: Record<string, unknown>) => ({ opportunity_id: String(row.opportunity_id), batch_number: Number(row.batch_number) }));
   }
@@ -1211,6 +1211,41 @@ export class SupabaseStore implements Store {
       .eq('status', 'published').not('published_at', 'is', null).is('linkedin_post_draft', null);
     if (error) fail(error, 'Could not count published jobs without LinkedIn drafts');
     return count ?? 0;
+  }
+
+  async enqueueXPost(opportunityId: string): Promise<boolean> {
+    const { data, error } = await this.client.rpc('enqueue_x_post', { p_opportunity_id: opportunityId });
+    if (error) fail(error, 'Could not queue X post'); return data === true;
+  }
+  async claimNextXDeliveryBatch(limit = 10): Promise<LinkedInDeliveryItem[]> {
+    const { data, error } = await this.client.rpc('claim_next_x_delivery_batch', { p_limit: Math.min(10, limit) });
+    if (error) fail(error, 'Could not claim X delivery batch');
+    return (data ?? []).map((row: Record<string, unknown>) => ({ opportunity_id: String(row.opportunity_id), batch_number: Number(row.batch_number) }));
+  }
+  async setXDeliveryState(opportunityId: string, state: 'sent' | 'failed', details: { telegramMessageId?: number; error?: string; retryable?: boolean } = {}): Promise<void> {
+    const patch = state === 'sent'
+      ? { status: state, telegram_message_id: details.telegramMessageId ?? null, sent_at: new Date().toISOString(), last_error: null, sending_started_at: null, retryable: false }
+      : { status: state, last_error: details.error ?? 'Telegram delivery failed.', sending_started_at: null, retryable: details.retryable ?? false };
+    const { error } = await this.client.from('x_post_delivery_queue').update(patch).eq('opportunity_id', opportunityId);
+    if (error) fail(error, 'Could not update X delivery state');
+  }
+  async prepareXDeliveryRetry(batchNumber: number): Promise<void> {
+    const { error } = await this.client.from('x_post_delivery_queue').update({ retryable: true }).eq('batch_number', batchNumber).eq('status', 'failed');
+    if (error) fail(error, 'Could not prepare failed X posts for retry');
+  }
+  async acknowledgeXDeliveryBatch(batchNumber: number): Promise<boolean> {
+    const { data, error } = await this.client.rpc('acknowledge_x_delivery_batch', { p_batch_number: batchNumber });
+    if (error) fail(error, 'Could not acknowledge X delivery batch'); return data === true;
+  }
+  async currentXDeliveryBatch(): Promise<number | null> {
+    const { data, error } = await this.client.from('x_post_delivery_queue').select('batch_number').in('status', ['sent', 'failed', 'sending']).not('batch_number', 'is', null).order('batch_number').limit(1).maybeSingle();
+    if (error) fail(error, 'Could not load active X delivery batch'); return data?.batch_number == null ? null : Number(data.batch_number);
+  }
+  async xDeliveryCounts(): Promise<LinkedInDeliveryCounts> {
+    const { data, error } = await this.client.from('x_post_delivery_queue').select('status').limit(10000);
+    if (error) fail(error, 'Could not load X delivery totals');
+    const counts: LinkedInDeliveryCounts = { queued: 0, sending: 0, sent: 0, acknowledged: 0, failed: 0 };
+    for (const row of data ?? []) if (row.status in counts) counts[row.status as keyof LinkedInDeliveryCounts] += 1; return counts;
   }
 
   async recordCandidateApplication(input: CandidateApplicationInput): Promise<void> {

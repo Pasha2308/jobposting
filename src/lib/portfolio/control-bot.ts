@@ -4,6 +4,7 @@ import type { TelegramUpdate } from '../telegram/service';
 import type { Messenger, TelegramButton } from '../telegram/client';
 import { discoverPortfolioJobs } from './getro';
 import { acknowledgeAndContinue, deliverNextLinkedInBatch } from './linkedin-delivery';
+import { acknowledgeXAndContinue, deliverNextXBatch } from './x-delivery';
 
 type BotDeps = { env: AppEnv; store: Store; messenger: Messenger; fetcher?: typeof fetch };
 
@@ -47,6 +48,12 @@ export async function handlePortfolioBotUpdate(update: TelegramUpdate, deps: Bot
     else if (data.startsWith('portfolio_done:')) {
       const batch = Number(data.slice('portfolio_done:'.length));
       await acknowledgeAndContinue(env, store, messenger, Number.isSafeInteger(batch) ? batch : undefined);
+    } else if (data.startsWith('portfolio_x_done:')) {
+      const batch = Number(data.slice('portfolio_x_done:'.length));
+      await acknowledgeXAndContinue(env, store, messenger, Number.isSafeInteger(batch) ? batch : undefined);
+    } else if (data.startsWith('portfolio_x_retry:')) {
+      const batch = Number(data.slice('portfolio_x_retry:'.length));
+      if (Number.isSafeInteger(batch)) { await store.prepareXDeliveryRetry(batch); await deliverNextXBatch(env, store, messenger, chatId); }
     } else if (data.startsWith('portfolio_retry:')) {
       const retryBatch = Number(data.slice('portfolio_retry:'.length));
       if (!Number.isSafeInteger(retryBatch) || await store.currentLinkedInDeliveryBatch() !== retryBatch) {
@@ -68,7 +75,7 @@ export async function handlePortfolioBotUpdate(update: TelegramUpdate, deps: Bot
       return;
     }
     await store.setPortfolioAdminChat(user.id, chatId);
-    await messenger.sendMessage(chatId, 'Portfolio control bot is ready. /fetch starts a manual job search, /status shows progress, and /done acknowledges the current LinkedIn draft batch.', { reply_markup: startKeyboard() });
+    await messenger.sendMessage(chatId, 'Portfolio control bot is ready. /fetch finds jobs, /linkedin sends the next LinkedIn batch, /x sends up to 10 X drafts, and /status shows progress.', { reply_markup: startKeyboard() });
     return;
   }
 
@@ -79,8 +86,12 @@ export async function handlePortfolioBotUpdate(update: TelegramUpdate, deps: Bot
   }
   if (command === '/fetch') await runFetch(user.id, chatId, deps);
   else if (command === '/status') await sendStatus(chatId, deps);
+  else if (command === '/linkedin') await deliverNextLinkedInBatch(env, store, messenger, chatId);
+  else if (command === '/x') await deliverNextXBatch(env, store, messenger, chatId);
   else if (command === '/done') await acknowledgeAndContinue(env, store, messenger);
-  else await messenger.sendMessage(chatId, 'Commands: /start, /fetch, /status, /done.');
+  else if (command === '/done_x') await acknowledgeXAndContinue(env, store, messenger);
+  else if (command === '/retry_x') { const batch = await store.currentXDeliveryBatch(); if (batch != null) await store.prepareXDeliveryRetry(batch); await deliverNextXBatch(env, store, messenger, chatId); }
+  else await messenger.sendMessage(chatId, 'Commands: /start, /fetch, /status, /linkedin, /done, /x, /done_x, /retry_x.');
 }
 
 async function runFetch(userId: number, chatId: number, deps: BotDeps): Promise<void> {
@@ -141,10 +152,11 @@ async function runFetch(userId: number, chatId: number, deps: BotDeps): Promise<
 }
 
 async function sendStatus(chatId: number, { store, messenger }: BotDeps): Promise<void> {
-  const [run, pending, delivery, missingDrafts] = await Promise.all([
+  const [run, pending, delivery, xDelivery, missingDrafts] = await Promise.all([
     store.latestPortfolioSearch(),
     store.listAdmin({ status: 'pending_review', page: 1, pageSize: 1 }),
     store.linkedinDeliveryCounts(),
+    store.xDeliveryCounts(),
     store.countPublishedWithoutLinkedInDraft(),
   ]);
   const report = run?.report ?? {};
@@ -166,6 +178,8 @@ async function sendStatus(chatId: number, { store, messenger }: BotDeps): Promis
     `Delivered posts awaiting acknowledgement: ${delivery.sent}`,
     `Posts acknowledged: ${delivery.acknowledged}`,
     `Failed notifications: ${delivery.failed}`,
+    `X drafts queued: ${xDelivery.queued + xDelivery.failed + xDelivery.sending}`,
+    `X drafts delivered: ${xDelivery.sent + xDelivery.acknowledged}`,
   ].filter((line): line is string => Boolean(line)).join('\n');
   await messenger.sendMessage(chatId, text);
 }

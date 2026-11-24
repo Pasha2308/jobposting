@@ -46,6 +46,7 @@ export async function publishOpportunity(
       ? opportunity
       : await store.updateOpportunity(opportunity.id, { linkedin_post_draft: postDraft });
     await store.enqueueLinkedInPost(opportunity.id);
+    if (repaired.publication_number && repaired.publication_number % 3 === 0) await store.enqueueXPost(opportunity.id);
     return {
       opportunity: { ...repaired, company: opportunity.company, category: opportunity.category } as OpportunityWithRelations,
       alreadyPublished: true,
@@ -92,6 +93,8 @@ export async function publishOpportunity(
   }
 
   await store.enqueueLinkedInPost(opportunity.id);
+  // One X draft for every three published LinkedIn drafts (30 → 10).
+  if (updated.publication_number && updated.publication_number % 3 === 0) await store.enqueueXPost(opportunity.id);
 
   await store.logActivity({
     actor,

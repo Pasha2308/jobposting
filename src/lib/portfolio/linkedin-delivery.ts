@@ -37,7 +37,8 @@ export async function deliverNextLinkedInBatch(
   paceMs = 1_100,
 ): Promise<{ sent: number; failed: number; batchNumber: number | null }> {
   if (!Number.isSafeInteger(chatId) || chatId === 0) throw new Error('Portfolio bot chat is not configured.');
-  const claimed = await store.claimNextLinkedInDeliveryBatch(30);
+  const batchSize = env.linkedinDeliveryBatchSize;
+  const claimed = await store.claimNextLinkedInDeliveryBatch(batchSize);
   if (!claimed.length) {
     const current = await store.currentLinkedInDeliveryBatch();
     const counts = await store.linkedinDeliveryCounts();
@@ -88,7 +89,7 @@ export async function deliverNextLinkedInBatch(
     }
   }
 
-  const doneButton: TelegramButton = { text: 'DONE — SEND NEXT 30', callback_data: `portfolio_done:${batchNumber}` };
+  const doneButton: TelegramButton = { text: `DONE — SEND NEXT ${batchSize}`, callback_data: `portfolio_done:${batchNumber}` };
   await messenger.sendMessage(chatId, `Batch ${batchNumber}: sent ${sent} LinkedIn drafts. They are delivered to Telegram only; none were posted to LinkedIn.`, { reply_markup: { inline_keyboard: [[doneButton]] } });
   return { sent, failed, batchNumber };
 }
