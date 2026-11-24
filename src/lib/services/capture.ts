@@ -1,7 +1,7 @@
 import type { AIProvider, ExtractionRequest } from '../ai/provider';
 import { AIError } from '../ai/provider';
 import { validateExtraction, validateForPublication, type ExtractionOutput, captureInputSchema } from '../domain/validation';
-import { buildOpportunitySlug, canonicalSourceKey, extractLinkedInPostId, normalizeEmail, normalizeSourceUrl, safeOutboundUrl, slugify } from '../domain/url';
+import { buildOpportunitySlug, canonicalSourceKey, extractLinkedInPostId, isLinkedInShortPostUrl, linkedInPostUrl, normalizeEmail, normalizeSourceUrl, safeOutboundUrl, slugify } from '../domain/url';
 import { checkDuplicates, type DuplicateCandidate } from '../domain/duplicates';
 import { computeCompleteness } from '../domain/completeness';
 import type {
@@ -368,7 +368,7 @@ export async function processCapture(
           application_url: application.applicationUrl,
           recruitment_email: application.email,
           careers_url: application.careersUrl,
-          application_instructions: opening.application_instructions ?? null,
+          application_instructions: application.instructions,
           source_url: capture.source_url,
           source_type: capture.source_type,
           source_capture_id: capture.id,
@@ -664,12 +664,13 @@ function normaliseApplication(
     deadline?: string | null;
   },
   capture: SourceCapture,
-): { method: string; applicationUrl: string | null; email: string | null; careersUrl: string | null; deadline: string | null; warnings: string[] } {
+): { method: string; applicationUrl: string | null; email: string | null; careersUrl: string | null; deadline: string | null; instructions: string | null; warnings: string[] } {
   const warnings: string[] = [];
   let method = opening.application_method;
   const applicationUrl = safeOutboundUrl(opening.application_url);
   const careersUrl: string | null = null;
   const email = normalizeEmail(opening.recruitment_email);
+  let instructions = opening.application_instructions?.trim() || null;
 
   if (method === 'external_url' && !applicationUrl) {
     warnings.push('The AI selected an external application URL but did not provide a valid URL.');
@@ -684,10 +685,20 @@ function normaliseApplication(
     method = 'none';
   }
   if (method === 'linkedin_post') {
-    if (!capture.source_url?.includes('linkedin.com') || !opening.application_instructions) {
+    if (!linkedInPostUrl(capture.source_url) || !instructions) {
       warnings.push('LinkedIn application requires the original post URL and explicit application instructions.');
       method = 'none';
     }
+  }
+
+  // LinkedIn frequently hides an embedded job link from copied post text. If
+  // the author explicitly invites applications, DMs, or profiles, preserve the
+  // original post as the honest candidate route instead of inventing a URL.
+  if (method === 'none' && !applicationUrl && !email && isLinkedInShortPostUrl(capture.source_url) &&
+      /\b(apply|dm|share|send)\b[\s\S]{0,80}\b(profile|resume|cv|job link|application)?\b/i.test(capture.raw_text)) {
+    method = 'linkedin_post';
+    instructions = 'Open the original LinkedIn post and follow its application instructions or contact the poster.';
+    warnings.push('The copied text omitted the embedded application destination; candidates will be sent to the original LinkedIn post.');
   }
 
   let deadline: string | null = null;
@@ -697,7 +708,7 @@ function normaliseApplication(
     else warnings.push('The stated deadline has passed or is invalid; it was not applied.');
   }
 
-  return { method, applicationUrl, email, careersUrl, deadline, warnings };
+  return { method, applicationUrl, email, careersUrl, deadline, instructions, warnings };
 }
 
 export type CoverageReport = {

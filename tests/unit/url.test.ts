@@ -9,6 +9,7 @@ import {
   normalizeEmail,
   normalizeSourceUrl,
   safeOutboundUrl,
+  linkedInPostUrl,
   slugify,
 } from '../../src/lib/domain/url';
 
@@ -81,6 +82,7 @@ describe('LinkedIn post ids', () => {
     expect(isLinkedInPostUrl('http://lnkd.in/p/dtEKwVfK')).toBe(false);
     expect(isLinkedInPostUrl('https://lnkd.in:444/p/dtEKwVfK')).toBe(false);
     expect(extractLinkedInPostId(short)).toBeNull();
+    expect(linkedInPostUrl(short)).toBe(short);
   });
 
   it('extracts ids from post, feed and activity URLs', () => {

@@ -202,7 +202,7 @@ export function linkedInPostUrl(sourceUrl: string | null): string | null {
   if (!normalized) return null;
   try {
     const host = new URL(normalized).hostname;
-    return host === 'linkedin.com' || host.endsWith('.linkedin.com') ? normalized : null;
+    return host === 'linkedin.com' || host.endsWith('.linkedin.com') || isLinkedInShortPostUrl(normalized) ? normalized : null;
   } catch {
     return null;
   }

@@ -476,7 +476,16 @@ async function handleCallback(callback: TelegramCallback, deps: TelegramDeps): P
         `⚠️ ${escapeHtml(safe)}${blocking}\n\nFix the details in the admin review page:\n${escapeHtml(
           `${env.siteUrl}/admin/opportunities/${opportunityId}`,
         )}`,
-        { parse_mode: 'HTML', disable_web_page_preview: true },
+        {
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Retry Approve & Publish', callback_data: `pub:${opportunityId}` }],
+              [{ text: 'Open admin review', url: `${env.siteUrl}/admin/opportunities/${opportunityId}` }],
+            ],
+          },
+        },
       )
       .catch(() => undefined);
   }

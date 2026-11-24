@@ -139,6 +139,18 @@ describe('Telegram capture bot', () => {
     expect(store.opportunities).toHaveLength(1);
   });
 
+  it('uses the original short LinkedIn post when explicit apply text omits the embedded link', async () => {
+    const { store } = await seedStore();
+    const messenger = new RecordingMessenger();
+    const ai = fakeAI({ application_method: 'none', application_url: null, recruitment_email: null, application_instructions: null });
+    const shortUrl = 'https://lnkd.in/p/dtEKwVfK';
+    await handleTelegramUpdate(messageUpdate(25, `${shortUrl}\nAcme is hiring a Product Consultant. Interested candidates should apply through the job link or share your updated profile.`), {
+      store, ai, env: testEnv(), messenger,
+    });
+    expect(store.opportunities[0].application_method).toBe('linkedin_post');
+    expect(store.opportunities[0].application_instructions).toMatch(/original LinkedIn post/i);
+  });
+
   it('rejects lnkd.in links outside the post-share path without creating captures', async () => {
     const { store } = await seedStore();
     const messenger = new RecordingMessenger();
