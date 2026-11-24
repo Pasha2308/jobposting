@@ -70,6 +70,14 @@ type DiscoveryStats = {
   heldForInformation: number;
 };
 
+function stableSlug(parts: Array<string | null | undefined>, fallbackSeed: string): string {
+  const readable = parts.map((part) => slugify(part ?? '')).filter(Boolean).join('-');
+  if (readable) return readable.slice(0, 140).replace(/-+$/g, '');
+  let hash = 2166136261;
+  for (const char of fallbackSeed) hash = Math.imul(hash ^ (char.codePointAt(0) ?? 0), 16777619) >>> 0;
+  return `portfolio-${hash.toString(36)}`;
+}
+
 function cleanDescription(value: string | null | undefined): string | null {
   if (!value) return null;
   return plainText(value) || null;
@@ -220,7 +228,7 @@ async function createFromJob(
     try {
       company = await store.createCompany({
         name: companyName,
-        slug: `${slugify(companyName).slice(0, 60)}-${externalId.slice(-8)}`,
+        slug: stableSlug([companyName, externalId.slice(-8)], `${companyName}:${externalId}`),
         website,
         careers_url: careersUrl,
         verified: false,
@@ -241,7 +249,7 @@ async function createFromJob(
   const responsibilities = sectionBullets(description, 'responsibilities');
   const requirements = sectionBullets(description, 'requirements');
   const draft: OpportunityDraft = {
-    slug: `${slugify(title)}-${slugify(companyName ?? source.id)}-${slugify(externalId)}`.slice(0, 140).replace(/-+$/g, '') || `portfolio-${slugify(externalId)}`,
+    slug: stableSlug([title, companyName ?? source.id, externalId], `${source.id}:${externalId}:${title}`),
     title,
     company_id: company?.id ?? null,
     category_id: category?.id ?? null,
@@ -468,6 +476,8 @@ export async function discoverPortfolioJobs(
   options: { now?: () => number; fetcher?: typeof fetch; manual?: boolean; fullBackfill?: boolean; onProgress?: (report: Record<string, unknown>) => Promise<void> | void } = {},
 ): Promise<{ configured: boolean; scanned: number; created: number; readyForReview: number; heldForInformation: number; notified: number; duplicatesSkipped: number; scannedSources: string[]; failures: string[] }> {
   const now = options.now ?? Date.now;
+  const runStartedAt = Date.now();
+  const timeBudgetReached = () => Date.now() - runStartedAt >= 240_000;
   const fetcher = options.fetcher ?? fetch;
   const apiKey = env.portfolioGetroApiKey;
   const eligibleGetro = apiKey ? GETRO_SOURCES.filter((source) => env.portfolioGetroNetworkIds[source.id]) : [];
@@ -484,6 +494,10 @@ export async function discoverPortfolioJobs(
   let lastRequestAt = 0;
   const sources = [...PUBLIC_SOURCES, ...eligibleGetro, ...eligibleCandidates];
   for (const source of sources) {
+    if (timeBudgetReached()) {
+      failures.push('The safe serverless time budget was reached. Run /fetch again to continue from saved source checkpoints.');
+      break;
+    }
     const previous = await store.getPortfolioDiscoveryState(source.id);
     if (!options.manual && previous?.last_success_at && now() - Date.parse(previous.last_success_at) < TWO_DAYS) continue;
     const sourceCredentials = env.portfolioGetroSourceCredentials[source.id];
@@ -560,6 +574,10 @@ export async function discoverPortfolioJobs(
   try {
     const companySources = (await store.listCompanySources()).filter((source) => source.is_active !== false && source.sync_status !== 'disabled');
     for (const companySource of companySources) {
+      if (timeBudgetReached()) {
+        failures.push('The safe serverless time budget was reached. Run /fetch again to continue from saved source checkpoints.');
+        break;
+      }
       const sourceId = `company-source:${companySource.id}`;
       const previous = await store.getPortfolioDiscoveryState(sourceId);
       if (!options.manual && previous?.last_success_at && now() - Date.parse(previous.last_success_at) < TWO_DAYS) continue;
