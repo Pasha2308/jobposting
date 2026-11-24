@@ -147,7 +147,8 @@ describe('Telegram capture bot', () => {
     await handleTelegramUpdate(messageUpdate(25, `${shortUrl}\nAcme is hiring a Product Consultant. Interested candidates should apply through the job link or share your updated profile.`), {
       store, ai, env: testEnv(), messenger,
     });
-    expect(store.opportunities[0].application_method).toBe('linkedin_post');
+    expect(store.opportunities[0].application_method).toBe('external_url');
+    expect(store.opportunities[0].application_url).toBe(shortUrl);
     expect(store.opportunities[0].application_instructions).toMatch(/original LinkedIn post/i);
   });
 

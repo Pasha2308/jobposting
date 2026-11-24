@@ -667,7 +667,7 @@ function normaliseApplication(
 ): { method: string; applicationUrl: string | null; email: string | null; careersUrl: string | null; deadline: string | null; instructions: string | null; warnings: string[] } {
   const warnings: string[] = [];
   let method = opening.application_method;
-  const applicationUrl = safeOutboundUrl(opening.application_url);
+  let applicationUrl = safeOutboundUrl(opening.application_url);
   const careersUrl: string | null = null;
   const email = normalizeEmail(opening.recruitment_email);
   let instructions = opening.application_instructions?.trim() || null;
@@ -696,7 +696,8 @@ function normaliseApplication(
   // original post as the honest candidate route instead of inventing a URL.
   if (method === 'none' && !applicationUrl && !email && isLinkedInShortPostUrl(capture.source_url) &&
       /\b(apply|dm|share|send)\b[\s\S]{0,80}\b(profile|resume|cv|job link|application)?\b/i.test(capture.raw_text)) {
-    method = 'linkedin_post';
+    method = 'external_url';
+    applicationUrl = safeOutboundUrl(capture.source_url);
     instructions = 'Open the original LinkedIn post and follow its application instructions or contact the poster.';
     warnings.push('The copied text omitted the embedded application destination; candidates will be sent to the original LinkedIn post.');
   }
