@@ -155,7 +155,7 @@ describe('portfolio control bot', () => {
     const postMessage = messenger.sent[0].text;
     expect(postMessage).toContain('Founding Full Stack Engineer');
     expect(postMessage).toContain('/opportunities/HC-');
-    expect(postMessage).toContain('Apply Now button');
+    expect(postMessage).toContain('Interested? See the full details and apply here');
     expect(messenger.sent.at(-1)?.options?.reply_markup?.inline_keyboard[0][0]).toMatchObject({ text: 'DONE — SEND NEXT 15' });
 
     await acknowledgeAndContinue(env, store, messenger, delivered.batchNumber!);
@@ -276,7 +276,7 @@ describe('portfolio control bot', () => {
     const first = await deliverNextLinkedInBatch(env, store, messenger, -10012345, 0);
     expect(first.sent).toBe(15);
     const firstPost = messenger.sent.find((item) => item.text.startsWith('📌 Ready-to-copy LinkedIn post'))?.text ?? '';
-    expect(firstPost).toContain(`We're hiring: ${original.title} at Acme Labs`);
+    expect(firstPost).toContain('LOOKING FOR A FOUNDING FULL STACK ENGINEER ROLE?');
     expect(firstPost).toContain(`${env.siteUrl}/opportunities/${original.job_code}`);
     expect(firstPost.split(`${env.siteUrl}/opportunities/${original.job_code}`).length - 1).toBe(1);
     expect(firstPost).not.toMatch(/&lt;|<\/?p>/i);
